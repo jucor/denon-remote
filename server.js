@@ -25,6 +25,7 @@ let state = {
   mute: null,
   input: null,
   surround: null,
+  sdb: null,
 };
 
 function parseResponse(data) {
@@ -51,8 +52,23 @@ function parseResponse(data) {
     } else if (line.startsWith('MS') && !line.startsWith('MSQUICK')) {
       state.surround = line.substring(2);
       events.push({ type: 'surround', value: state.surround });
+    } else if (line.startsWith('BDSTATUS ')) {
+      // Parse CD playback status: BDSTATUS 442000S1TTTTTTTNMMMMSS
+      const payload = line.substring(9); // after "BDSTATUS "
+      const stateChar = payload.charAt(6); // C=playing, D=paused, B=stopped
+      const track = parseInt(payload.substring(8, 15), 10);
+      const mins = parseInt(payload.substring(16, 20), 10);
+      const secs = parseInt(payload.substring(20, 22), 10);
+      const cdTransport = stateChar === 'C' ? 'playing' : stateChar === 'D' ? 'paused' : stateChar === 'B' ? 'stopped' : 'unknown';
+      state.cdTrack = track;
+      state.cdTime = { mins, secs };
+      state.cdTransport = cdTransport;
+      events.push({ type: 'cdStatus', track, mins, secs, transport: cdTransport });
     } else if (line.startsWith('NSE') || line.startsWith('NSA')) {
       events.push({ type: 'display', value: line });
+    } else if (line.startsWith('PSSDB ')) {
+      state.sdb = line.substring(6);
+      events.push({ type: 'sdb', value: state.sdb });
     } else if (line.startsWith('PS')) {
       events.push({ type: 'ps', value: line });
     } else if (line.startsWith('SLP')) {
@@ -101,7 +117,8 @@ function connectDenon(host) {
       setTimeout(() => sendCommand('SI?'), 300);
       setTimeout(() => sendCommand('MS?'), 400);
       setTimeout(() => sendCommand('SLP?'), 500);
-      setTimeout(() => sendCommand('NSE'), 600);
+      setTimeout(() => sendCommand('PSSDB ?'), 600);
+      setTimeout(() => sendCommand('NSE'), 700);
     }, 500);
   });
 
@@ -219,21 +236,16 @@ app.post('/api/mute/toggle', (req, res) => {
 app.post('/api/input/:source', (req, res) => {
   const source = req.params.source.toUpperCase();
   sendCommand(`SI${source}`);
+  // Query display info after input switch so UI gets source status
+  setTimeout(() => sendCommand('NSE'), 500);
   res.json({ ok: true, source });
 });
 
-// Bluetooth pairing mode
-// On the CEOL N7, selecting BT input when no device is connected
-// auto-enters pairing mode. We also navigate to force pairing.
-app.post('/api/bluetooth/pair', (req, res) => {
-  // First select BT input, then request display info to confirm pairing mode
-  sendCommand('SIBT');
-  res.json({ ok: true, message: 'Bluetooth input selected - pairing mode activated if no device connected' });
-});
 
-// Playback
+// Playback — source-aware: CD uses BD prefix, others use NS prefix
 app.post('/api/playback/:action', (req, res) => {
-  const actions = {
+  const isCd = state.input && state.input.toUpperCase() === 'CD';
+  const nsActions = {
     play: 'NS9A',
     pause: 'NS9B',
     stop: 'NS9C',
@@ -242,6 +254,16 @@ app.post('/api/playback/:action', (req, res) => {
     repeat: 'NSRPT',
     random: 'NSRND',
   };
+  const bdActions = {
+    play: 'BDPLAY',
+    pause: 'BDPAUSE',
+    stop: 'BDSTOP',
+    next: 'BDSKIP +',
+    prev: 'BDSKIP -',
+    repeat: 'BDREPEAT',
+    random: 'BDRANDOM',
+  };
+  const actions = isCd ? bdActions : nsActions;
   const cmd = actions[req.params.action];
   if (!cmd) return res.status(400).json({ error: 'Unknown action' });
   sendCommand(cmd);
@@ -260,6 +282,16 @@ app.post('/api/surround/:mode', (req, res) => {
   const mode = aliases[req.params.mode.toLowerCase()] || req.params.mode.toUpperCase();
   sendCommand(`MS${mode}`);
   res.json({ ok: true, mode });
+});
+
+// SDB tone toggle
+app.post('/api/sdb/toggle', (req, res) => {
+  if (state.sdb === 'ON') {
+    sendCommand('PSSDB OFF');
+  } else {
+    sendCommand('PSSDB ON');
+  }
+  res.json({ ok: true });
 });
 
 // Tone controls
@@ -296,7 +328,22 @@ app.post('/api/sleep/:minutes', (req, res) => {
   res.json({ ok: true });
 });
 
-// Menu navigation
+// Source menu navigation (NS cursor for network sources)
+app.post('/api/nav/:action', (req, res) => {
+  const actions = {
+    up: 'NS90', down: 'NS91', left: 'NS92', right: 'NS93',
+    enter: 'NS94', back: 'NS92',
+    play: 'NS9A', pause: 'NS9B', stop: 'NS9C',
+    pageup: 'NS9X', pagedown: 'NS9Y',
+    mode: 'NS97', favorite: 'NS98',
+  };
+  const cmd = actions[req.params.action];
+  if (!cmd) return res.status(400).json({ error: 'Unknown nav action' });
+  sendCommand(cmd);
+  res.json({ ok: true });
+});
+
+// System menu navigation (MN commands for receiver setup)
 app.post('/api/menu/:action', (req, res) => {
   const actions = {
     up: 'MNCUP', down: 'MNCDN', left: 'MNCLT', right: 'MNCRT',
@@ -306,6 +353,7 @@ app.post('/api/menu/:action', (req, res) => {
   const cmd = actions[req.params.action];
   if (!cmd) return res.status(400).json({ error: 'Unknown menu action' });
   sendCommand(cmd);
+  setTimeout(() => sendCommand('NSE'), 300);
   res.json({ ok: true });
 });
 

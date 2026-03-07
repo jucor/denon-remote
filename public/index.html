@@ -64,6 +64,52 @@
     padding: 12px;
   }
 
+  /* Cell groups: transparent wrapper in portrait */
+  .cell-group > .section:last-child {
+    margin-bottom: 12px;
+  }
+
+  /* Landscape layout */
+  @media (orientation: landscape) and (min-width: 700px) {
+    .container {
+      max-width: 100%;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-auto-rows: auto;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    /* Now Playing spans full width */
+    .container > .now-playing {
+      grid-column: 1 / -1;
+    }
+
+    .section {
+      margin-bottom: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Stacked sections within a cell group */
+    .cell-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .cell-group > .section {
+      margin-bottom: 0;
+      flex: 1;
+    }
+  }
+
+  @media (orientation: landscape) and (min-width: 1100px) {
+    .container {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+
   /* Sections */
   .section {
     background: var(--surface);
@@ -88,6 +134,7 @@
 
   .power-row button {
     flex: 1;
+    height: 44px;
   }
 
   /* Buttons */
@@ -96,8 +143,8 @@
     color: var(--text);
     border: none;
     border-radius: 8px;
-    padding: 12px 16px;
-    font-size: 15px;
+    padding: 10px 12px;
+    font-size: 14px;
     cursor: pointer;
     transition: background 0.15s, transform 0.1s;
     display: inline-flex;
@@ -119,7 +166,6 @@
 
   button.on-btn { background: var(--success); color: #111; }
   button.off-btn { background: var(--accent); }
-  button.bt-pair { background: var(--warn); color: #111; }
 
   /* Volume */
   .volume-row {
@@ -129,11 +175,12 @@
   }
 
   .volume-row button {
-    width: 48px;
-    height: 48px;
-    font-size: 22px;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
     flex-shrink: 0;
     border-radius: 50%;
+    padding: 0;
   }
 
   .volume-slider-wrap {
@@ -179,11 +226,12 @@
   }
 
   .mute-btn {
-    width: 48px;
-    height: 48px;
-    font-size: 18px;
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
     flex-shrink: 0;
     border-radius: 50%;
+    padding: 0;
   }
 
   .mute-btn.muted {
@@ -199,24 +247,55 @@
 
   .input-grid button {
     font-size: 12px;
-    padding: 10px 6px;
+    padding: 8px 4px;
     text-align: center;
+    height: 38px;
   }
 
   .input-grid button.active {
     background: var(--accent);
   }
 
-  /* Bluetooth section */
-  .bt-row {
-    display: flex;
-    gap: 10px;
-    margin-top: 10px;
+  /* Receiver Display */
+  .display-lines {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 13px;
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 10px 12px;
+    min-height: 60px;
+    line-height: 1.6;
+    color: var(--text);
   }
 
-  .bt-row button {
-    flex: 1;
-    font-size: 14px;
+  .display-lines .display-line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .display-lines .display-line:empty {
+    display: none;
+  }
+
+  .display-lines .display-line.dim {
+    color: var(--text-dim);
+  }
+
+  .display-lines .display-line.cursor {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .display-lines .display-line.selectable {
+    cursor: pointer;
+    padding: 2px 4px;
+    margin: 0 -4px;
+    border-radius: 4px;
+  }
+
+  .display-lines .display-line.selectable:hover {
+    background: var(--surface2);
   }
 
   /* Playback */
@@ -227,16 +306,17 @@
   }
 
   .playback-row button {
-    width: 52px;
-    height: 52px;
-    font-size: 20px;
+    width: 44px;
+    height: 44px;
+    font-size: 18px;
     border-radius: 50%;
+    padding: 0;
   }
 
   .playback-row .play-btn {
-    width: 64px;
-    height: 64px;
-    font-size: 26px;
+    width: 54px;
+    height: 54px;
+    font-size: 22px;
     background: var(--accent);
   }
 
@@ -275,23 +355,11 @@
   .tone-control button {
     width: 36px;
     height: 36px;
-    font-size: 18px;
+    font-size: 16px;
     border-radius: 50%;
+    padding: 0;
   }
 
-  /* Sleep */
-  .sleep-grid {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .sleep-grid button {
-    flex: 1;
-    min-width: 55px;
-    font-size: 13px;
-    padding: 10px 6px;
-  }
 
   /* Now Playing */
   .now-playing {
@@ -313,16 +381,63 @@
     word-break: break-word;
   }
 
-  /* Surround */
-  .surround-grid {
+  .cd-status {
+    margin-top: 8px;
+    font-size: 20px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    letter-spacing: 1px;
+  }
+
+  .cd-status #cd-transport {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--success);
+    margin-right: 10px;
+  }
+
+  .cd-status #cd-transport.paused { color: var(--warn); }
+  .cd-status #cd-transport.stopped { color: var(--text-dim); }
+
+  .cd-status #cd-track {
+    color: var(--text);
+    margin-right: 10px;
+  }
+
+  .cd-status #cd-time {
+    color: var(--text-dim);
+  }
+
+  /* Button grids for Sound Mode / Sleep */
+  .mode-grid, .sleep-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 8px;
   }
 
-  .surround-grid button {
-    font-size: 11px;
-    padding: 10px 4px;
+  .mode-grid button, .sleep-grid button {
+    font-size: 12px;
+    padding: 8px 4px;
+    text-align: center;
+    height: 38px;
+  }
+
+  .mode-grid button.active, .sleep-grid button.active {
+    background: var(--accent);
+  }
+
+  /* Navigation buttons */
+  .nav-extra {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .nav-extra button {
+    font-size: 12px;
+    padding: 8px 12px;
   }
 
   /* Raw command */
@@ -381,10 +496,6 @@
     font-weight: 600;
   }
 
-  /* Surround mode label */
-  .surround-grid button.active {
-    background: var(--accent);
-  }
 
   /* Discovery overlay */
   #discovery-overlay {
@@ -546,30 +657,35 @@
   <div class="section now-playing" id="now-playing">
     <div class="np-source" id="np-source">--</div>
     <div class="np-info" id="np-info">Not connected</div>
-  </div>
-
-  <!-- Power -->
-  <div class="section">
-    <div class="section-title">Power</div>
-    <div class="power-row">
-      <button class="on-btn" onclick="api('/api/power/on')">&#x23FB; ON</button>
-      <button class="off-btn" onclick="api('/api/power/off')">&#x23FB; Standby</button>
+    <div class="cd-status" id="cd-status" style="display:none">
+      <span id="cd-transport"></span>
+      <span id="cd-track"></span>
+      <span id="cd-time"></span>
     </div>
   </div>
 
-  <!-- Volume -->
-  <div class="section">
-    <div class="section-title">Volume</div>
-    <div class="volume-row">
-      <button onclick="api('/api/volume/down')">&#x2212;</button>
-      <div class="volume-slider-wrap">
-        <input type="range" id="vol-slider" min="0" max="98" value="30"
-               oninput="volSliderInput(this.value)"
-               onchange="volSliderChange(this.value)">
-        <span class="vol-label" id="vol-label">--</span>
+  <!-- Group: Power + Volume -->
+  <div class="cell-group">
+    <div class="section">
+      <div class="section-title">Power</div>
+      <div class="power-row">
+        <button class="on-btn" onclick="api('/api/power/on')">&#x23FB; ON</button>
+        <button class="off-btn" onclick="api('/api/power/off')">&#x23FB; Standby</button>
       </div>
-      <button onclick="api('/api/volume/up')">&#x2B;</button>
-      <button class="mute-btn" id="mute-btn" onclick="api('/api/mute/toggle')" title="Mute">&#x1F507;</button>
+    </div>
+    <div class="section">
+      <div class="section-title">Volume</div>
+      <div class="volume-row">
+        <button onclick="api('/api/volume/down')">&#x2212;</button>
+        <div class="volume-slider-wrap">
+          <input type="range" id="vol-slider" min="0" max="98" value="30"
+                 oninput="volSliderInput(this.value)"
+                 onchange="volSliderChange(this.value)">
+          <span class="vol-label" id="vol-label">--</span>
+        </div>
+        <button onclick="api('/api/volume/up')">&#x2B;</button>
+        <button class="mute-btn" id="mute-btn" onclick="api('/api/mute/toggle')" title="Mute">&#x1F507;</button>
+      </div>
     </div>
   </div>
 
@@ -577,92 +693,99 @@
   <div class="section">
     <div class="section-title">Input Source</div>
     <div class="input-grid" id="input-grid">
-      <button onclick="setInput('BT')" data-input="BT">Bluetooth</button>
-      <button onclick="setInput('CD')" data-input="CD">CD</button>
-      <button onclick="setInput('TUNER')" data-input="TUNER">Tuner</button>
-      <button onclick="setInput('USB/IPOD')" data-input="USB/IPOD">USB</button>
-      <button onclick="setInput('NET')" data-input="NET">Network</button>
-      <button onclick="setInput('AUX1')" data-input="AUX1">AUX</button>
-      <button onclick="setInput('SPOTIFY')" data-input="SPOTIFY">Spotify</button>
-      <button onclick="setInput('IRADIO')" data-input="IRADIO">iRadio</button>
-      <button onclick="setInput('SERVER')" data-input="SERVER">Server</button>
-      <button onclick="setInput('FAVORITES')" data-input="FAVORITES">Favorites</button>
-      <button onclick="setInput('OPTICAL')" data-input="OPTICAL">Optical</button>
-      <button onclick="setInput('ANALOG')" data-input="ANALOG">Analog In</button>
+      <button onclick="setInput('CD')" data-input="CD">&#x1F4BF; CD</button>
+      <button onclick="setInput('BLUETOOTH')" data-input="BLUETOOTH">&#x1F4F6; Bluetooth</button>
+      <button onclick="setInput('TUNER')" data-input="TUNER">&#x1F4FB; Tuner</button>
+      <button onclick="setInput('USB')" data-input="USB">&#x1F50C; USB</button>
+      <button onclick="setInput('SERVER')" data-input="SERVER">&#x1F5A5; Server</button>
+      <button onclick="setInput('IRADIO')" data-input="IRADIO">&#x1F4E1; iRadio</button>
+      <button onclick="setInput('ANALOGIN')" data-input="ANALOGIN">&#x1F3A7; Analog In</button>
+      <button onclick="setInput('DIGITALIN1')" data-input="DIGITALIN1">&#x1F4A0; Digital 1</button>
+      <button onclick="setInput('DIGITALIN2')" data-input="DIGITALIN2">&#x1F4A0; Digital 2</button>
     </div>
   </div>
 
-  <!-- Bluetooth -->
-  <div class="section">
-    <div class="section-title">Bluetooth</div>
-    <p style="font-size:13px; color:var(--text-dim); margin-bottom:10px;">
-      Select Bluetooth input or enter pairing mode to connect a new device.
-    </p>
-    <div class="bt-row">
-      <button onclick="setInput('BT')">&#x1F399; Select Bluetooth</button>
-      <button class="bt-pair" onclick="btPair()">&#x1F4F6; Pairing Mode</button>
-    </div>
-  </div>
-
-  <!-- Playback -->
-  <div class="section">
-    <div class="section-title">Playback</div>
-    <div class="playback-row">
-      <button onclick="api('/api/playback/prev')">&#x23EE;</button>
-      <button onclick="api('/api/playback/stop')">&#x23F9;</button>
-      <button class="play-btn" onclick="api('/api/playback/play')">&#x23F5;</button>
-      <button onclick="api('/api/playback/pause')">&#x23F8;</button>
-      <button onclick="api('/api/playback/next')">&#x23ED;</button>
-    </div>
-    <div class="playback-extra">
-      <button onclick="api('/api/playback/repeat')">Repeat</button>
-      <button onclick="api('/api/playback/random')">Shuffle</button>
-    </div>
-  </div>
-
-  <!-- Tone Controls -->
-  <div class="section">
-    <div class="section-title">Tone</div>
-    <div class="tone-row">
-      <div class="tone-control">
-        <label>Bass</label>
-        <button onclick="api('/api/tone/bass/down')">&#x2212;</button>
-        <button onclick="api('/api/tone/bass/up')">&#x2B;</button>
+  <!-- Group: Playback + Display -->
+  <div class="cell-group">
+    <div class="section">
+      <div class="section-title">Playback</div>
+      <div class="playback-row">
+        <button onclick="api('/api/playback/prev')">&#x23EE;</button>
+        <button onclick="api('/api/playback/stop')">&#x23F9;</button>
+        <button class="play-btn" onclick="api('/api/playback/play')">&#x23F5;</button>
+        <button onclick="api('/api/playback/pause')">&#x23F8;</button>
+        <button onclick="api('/api/playback/next')">&#x23ED;</button>
       </div>
-      <div class="tone-control">
-        <label>Treble</label>
-        <button onclick="api('/api/tone/treble/down')">&#x2212;</button>
-        <button onclick="api('/api/tone/treble/up')">&#x2B;</button>
+      <div class="playback-extra">
+        <button onclick="api('/api/playback/repeat')">Repeat</button>
+        <button onclick="api('/api/playback/random')">Shuffle</button>
       </div>
     </div>
   </div>
 
-  <!-- Surround Mode -->
-  <div class="section">
-    <div class="section-title">Sound Mode</div>
-    <div class="surround-grid" id="surround-grid">
-      <button onclick="setMode('stereo')" data-mode="STEREO">Stereo</button>
-      <button onclick="setMode('direct')" data-mode="DIRECT">Direct</button>
-      <button onclick="setMode('standard')" data-mode="STANDARD">Standard</button>
-      <button onclick="setMode('music')" data-mode="MUSIC">Music</button>
-      <button onclick="setMode('movie')" data-mode="MOVIE">Movie</button>
-      <button onclick="setMode('game')" data-mode="GAME">Game</button>
-      <button onclick="setMode('rock')" data-mode="ROCK ARENA">Rock Arena</button>
-      <button onclick="setMode('jazz')" data-mode="JAZZ CLUB">Jazz Club</button>
-      <button onclick="setMode('virtual')" data-mode="VIRTUAL">Virtual</button>
+  <!-- Group: Tone + Sleep -->
+  <div class="cell-group">
+    <div class="section">
+      <div class="section-title">Tone</div>
+      <div class="tone-row">
+        <div class="tone-control">
+          <label>Bass</label>
+          <button onclick="api('/api/tone/bass/down')">&#x2212;</button>
+          <button onclick="api('/api/tone/bass/up')">&#x2B;</button>
+        </div>
+        <div class="tone-control">
+          <label>Treble</label>
+          <button onclick="api('/api/tone/treble/down')">&#x2212;</button>
+          <button onclick="api('/api/tone/treble/up')">&#x2B;</button>
+        </div>
+        <button id="sdb-btn" onclick="toggleSdb()" style="margin-top:8px">SDB Tone</button>
+      </div>
     </div>
-  </div>
 
-  <!-- Sleep Timer -->
-  <div class="section">
-    <div class="section-title">Sleep Timer</div>
-    <div class="sleep-grid">
-      <button onclick="setSleep('off')">Off</button>
-      <button onclick="setSleep('15')">15m</button>
-      <button onclick="setSleep('30')">30m</button>
-      <button onclick="setSleep('60')">60m</button>
-      <button onclick="setSleep('90')">90m</button>
-      <button onclick="setSleep('120')">120m</button>
+    <div class="section">
+      <div class="section-title">Sleep Timer</div>
+      <div class="sleep-grid" id="sleep-grid">
+        <button onclick="setSleep('off')" data-sleep="OFF">Off</button>
+        <button onclick="setSleep('15')" data-sleep="015">15 min</button>
+        <button onclick="setSleep('30')" data-sleep="030">30 min</button>
+        <button onclick="setSleep('60')" data-sleep="060">60 min</button>
+        <button onclick="setSleep('90')" data-sleep="090">90 min</button>
+        <button onclick="setSleep('120')" data-sleep="120">120 min</button>
+      </div>
+    </div>
+  </div><!-- /cell-group: Tone + Sleep -->
+
+  <!-- Group: Sound Mode + Menu Navigation -->
+  <div class="cell-group">
+    <div class="section">
+      <div class="section-title">Sound Mode</div>
+      <div class="mode-grid" id="mode-grid">
+        <button onclick="setMode('stereo')" data-mode="STEREO">Stereo</button>
+        <button onclick="setMode('direct')" data-mode="DIRECT">Direct</button>
+        <button onclick="setMode('standard')" data-mode="STANDARD">Standard</button>
+        <button onclick="setMode('music')" data-mode="MUSIC">Music</button>
+        <button onclick="setMode('movie')" data-mode="MOVIE">Movie</button>
+        <button onclick="setMode('game')" data-mode="GAME">Game</button>
+        <button onclick="setMode('rock')" data-mode="ROCK ARENA">Rock Arena</button>
+        <button onclick="setMode('jazz')" data-mode="JAZZ CLUB">Jazz Club</button>
+        <button onclick="setMode('virtual')" data-mode="VIRTUAL">Virtual</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Receiver Display</div>
+      <div class="display-lines" id="receiver-display">
+        <div class="display-line dim">No display data</div>
+      </div>
+      <div class="nav-extra">
+        <button onclick="nav('back')">&#x21A9; Back</button>
+        <button onclick="nav('pageup')">&#x25B2; Pg Up</button>
+        <button onclick="nav('pagedown')">&#x25BC; Pg Down</button>
+        <button onclick="nav('up')">&#x25B2;</button>
+        <button onclick="nav('down')">&#x25BC;</button>
+        <button onclick="api('/api/menu/menuon')">Top Menu</button>
+        <button onclick="api('/api/menu/info')">Info</button>
+      </div>
     </div>
   </div>
 
@@ -703,14 +826,18 @@ function setMode(mode) {
   api('/api/surround/' + mode);
 }
 
+function nav(action) {
+  api('/api/nav/' + action);
+}
+
+function toggleSdb() {
+  api('/api/sdb/toggle');
+}
+
 function setSleep(min) {
   api('/api/sleep/' + min);
 }
 
-function btPair() {
-  api('/api/bluetooth/pair');
-  log('Bluetooth pairing mode requested...');
-}
 
 function sendRaw() {
   const input = document.getElementById('raw-cmd');
@@ -722,7 +849,7 @@ function sendRaw() {
 }
 
 function volSliderInput(val) {
-  document.getElementById('vol-label').textContent = volumeToDb(val);
+  document.getElementById('vol-label').textContent = val;
 }
 
 function volSliderChange(val) {
@@ -859,6 +986,7 @@ function handleEvent(msg) {
         if (msg.value.mute) updateMute(msg.value.mute);
         if (msg.value.input) updateInput(msg.value.input);
         if (msg.value.surround) updateSurround(msg.value.surround);
+        if (msg.value.sdb) updateSdb(msg.value.sdb);
       }
       break;
     case 'power':
@@ -876,8 +1004,14 @@ function handleEvent(msg) {
     case 'surround':
       updateSurround(msg.value);
       break;
+    case 'cdStatus':
+      updateCdStatus(msg);
+      break;
     case 'sleep':
-      log('Sleep: ' + msg.value);
+      updateSleep(msg.value);
+      break;
+    case 'sdb':
+      updateSdb(msg.value);
       break;
     case 'display':
       handleDisplay(msg.value);
@@ -924,17 +1058,17 @@ function updateVolume(val) {
   const slider = document.getElementById('vol-slider');
   const label = document.getElementById('vol-label');
   slider.value = num;
-  label.textContent = volumeToDb(num);
+  label.textContent = num;
 }
 
 function updateMute(val) {
   const btn = document.getElementById('mute-btn');
   if (val === 'ON') {
     btn.classList.add('muted');
-    btn.innerHTML = '&#x1F508;';
+    btn.innerHTML = '&#x1F507;';
   } else {
     btn.classList.remove('muted');
-    btn.innerHTML = '&#x1F507;';
+    btn.innerHTML = '&#x1F50A;';
   }
 }
 
@@ -946,28 +1080,58 @@ function updateInput(val) {
     const di = btn.dataset.input;
     btn.classList.toggle('active', di && val && val.toUpperCase().startsWith(di.toUpperCase()));
   });
+  // Show/hide CD status
+  const cdEl = document.getElementById('cd-status');
+  if (val && val.toUpperCase() === 'CD') {
+    cdEl.style.display = '';
+  } else {
+    cdEl.style.display = 'none';
+  }
+  // Clear display lines on input change (new data will come via NSE)
+  for (const k in displayLines) delete displayLines[k];
+  updateReceiverDisplay();
 }
 
 function updateSurround(val) {
-  document.querySelectorAll('#surround-grid button').forEach(btn => {
-    const dm = btn.dataset.mode;
-    btn.classList.toggle('active', dm && val && val.toUpperCase() === dm.toUpperCase());
+  const upper = (val || '').toUpperCase();
+  document.querySelectorAll('#mode-grid button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === upper);
   });
 }
 
+function updateSleep(val) {
+  const upper = (val || '').toUpperCase();
+  document.querySelectorAll('#sleep-grid button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sleep === upper);
+  });
+}
+
+function updateSdb(val) {
+  const btn = document.getElementById('sdb-btn');
+  btn.classList.toggle('active', val === 'ON');
+}
+
 const displayLines = {};
+const displayMeta = {}; // { cursor: bool, selectable: bool } per line
 function handleDisplay(line) {
   // NSE0..NSE8 or NSA0..NSA8
-  const match = line.match(/^NS[EA](\d)(.*)/);
+  const match = line.match(/^NS[EA](\d)([\s\S]*)/);
   if (match) {
     const idx = parseInt(match[1], 10);
-    let text = match[2].split('\x00')[0].trim();
-    // Remove cursor/playable info byte at start of lines 1-6
-    if (idx >= 1 && idx <= 6 && text.length > 0) {
-      text = text.substring(1).trim();
+    let raw = match[2].split('\x00')[0];
+    let hasCursor = false;
+    let isSelectable = false;
+    let text = raw.trim();
+    if (idx >= 1 && idx <= 8 && raw.length > 0) {
+      const code = raw.charCodeAt(0);
+      // NSE info byte is a bitmask: bit1(0x02)=playable, bit3(0x08)=cursor
+      hasCursor = (code & 0x08) !== 0;
+      isSelectable = (code & 0x02) !== 0;
+      text = raw.substring(1).trim();
     }
     displayLines[idx] = text;
-    // Update now-playing info
+    displayMeta[idx] = { cursor: hasCursor, selectable: isSelectable };
+    // Update now-playing summary
     const info = document.getElementById('np-info');
     const parts = [];
     for (let i = 1; i <= 6; i++) {
@@ -976,7 +1140,64 @@ function handleDisplay(line) {
     if (parts.length > 0) {
       info.textContent = parts.join(' - ');
     }
+    updateReceiverDisplay();
   }
+}
+
+function getCursorLine() {
+  for (let i = 1; i <= 8; i++) {
+    if (displayMeta[i] && displayMeta[i].cursor) return i;
+  }
+  return -1;
+}
+
+function navToLine(targetIdx) {
+  let cursorIdx = getCursorLine();
+  if (cursorIdx < 0) {
+    // Fallback: assume cursor is on first selectable line
+    for (let i = 1; i <= 8; i++) {
+      if (displayMeta[i] && displayMeta[i].selectable) { cursorIdx = i; break; }
+    }
+    if (cursorIdx < 0) return;
+  }
+  const delta = targetIdx - cursorIdx;
+  const dir = delta > 0 ? 'down' : 'up';
+  const steps = Math.abs(delta);
+  // Send arrow presses spaced out, then OK
+  for (let i = 0; i < steps; i++) {
+    setTimeout(() => api('/api/nav/' + dir), i * 150);
+  }
+  setTimeout(() => api('/api/nav/enter'), steps * 150 + 100);
+}
+
+function updateReceiverDisplay() {
+  const el = document.getElementById('receiver-display');
+  const parts = [];
+  for (let i = 0; i <= 8; i++) {
+    if (!displayLines[i]) continue;
+    const meta = displayMeta[i] || {};
+    const isTitle = (i === 0);
+    if (isTitle) {
+      parts.push('<div class="display-line dim">' + escapeHtml(displayLines[i]) + '</div>');
+    } else if (meta.selectable) {
+      const cls = meta.cursor ? 'display-line selectable cursor' : 'display-line selectable';
+      const arrow = meta.cursor ? '&#x25B6; ' : '';
+      parts.push('<div class="' + cls + '" onclick="navToLine(' + i + ')">' + arrow + escapeHtml(displayLines[i]) + '</div>');
+    } else if (displayLines[i]) {
+      parts.push('<div class="display-line">' + escapeHtml(displayLines[i]) + '</div>');
+    }
+  }
+  if (parts.length === 0) {
+    el.innerHTML = '<div class="display-line dim">No display data</div>';
+  } else {
+    el.innerHTML = parts.join('');
+  }
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
 }
 
 // --- Log ---
@@ -999,6 +1220,20 @@ function logRaw(msg) {
   el.appendChild(div);
   while (el.children.length > MAX_LOG) el.removeChild(el.firstChild);
   el.scrollTop = el.scrollHeight;
+}
+
+// --- CD Status ---
+function updateCdStatus(msg) {
+  const el = document.getElementById('cd-status');
+  const transportEl = document.getElementById('cd-transport');
+  const trackEl = document.getElementById('cd-track');
+  const timeEl = document.getElementById('cd-time');
+
+  el.style.display = '';
+  transportEl.textContent = msg.transport;
+  transportEl.className = msg.transport;
+  trackEl.textContent = 'Track ' + msg.track;
+  timeEl.textContent = msg.mins + ':' + String(msg.secs).padStart(2, '0');
 }
 
 // --- Init ---
