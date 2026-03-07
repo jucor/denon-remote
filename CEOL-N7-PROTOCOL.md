@@ -85,8 +85,23 @@ SI? -> SICD
          BDFILE NAME   <binary bytes>
 ```
 
+## NSE/NSA Display Info Byte (lines 1-8)
+
+The first byte after the line number in NSE/NSA responses is a bitmask:
+- **Bit 1 (0x02)** = Playable Music (item is selectable/playable)
+- **Bit 3 (0x08)** = Cursor Select (cursor is on this line)
+- Other bits: Don't Care
+
+Example: byte `0x0A` (0x02|0x08) = playable + cursor selected.
+Note: The PDF labels these "Bit1" and "Bit4" but actual values show 0x02 and 0x08.
+
+**No T9/text input**: The protocol has no character input commands. iRadio search uses
+on-screen keyboard navigated with cursor commands — impractical over telnet. Use genre
+browsing (cursor nav + page up/down) or vTuner web portal for search instead.
+
 ## Protocol Reference
 - [DRA-N5/RCD-N8 Protocol PDF](https://assets.denon.com/documentmaster/uk/dran5_rcdn8_protocol_v100.pdf)
+- Local copy: `dran5_rcdn8_protocol_v100.pdf` in this repo
 - CD Control is documented as "N8 Only" but works on the RCD-N7 as well
 
 ## TODO
