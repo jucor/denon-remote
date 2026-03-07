@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Denon CEOL N7 Remote</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --accent: #e94560;
+    --accent2: #533483;
+    --text: #eee;
+    --text-dim: #999;
+    --success: #4ecca3;
+    --warn: #f0a500;
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  header {
+    background: var(--surface);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--surface2);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  header h1 {
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  #conn-status {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: var(--accent);
+  }
+
+  #conn-status.connected { background: var(--success); color: #111; }
+
+  .container {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 12px;
+  }
+
+  /* Sections */
+  .section {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+
+  .section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  /* Power */
+  .power-row {
+    display: flex;
+    gap: 10px;
+  }
+
+  .power-row button {
+    flex: 1;
+  }
+
+  /* Buttons */
+  button, .btn {
+    background: var(--surface2);
+    color: var(--text);
+    border: none;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  button:active, .btn:active {
+    transform: scale(0.96);
+    background: var(--accent2);
+  }
+
+  button.active {
+    background: var(--accent);
+  }
+
+  button.on-btn { background: var(--success); color: #111; }
+  button.off-btn { background: var(--accent); }
+  button.bt-pair { background: var(--warn); color: #111; }
+
+  /* Volume */
+  .volume-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .volume-row button {
+    width: 48px;
+    height: 48px;
+    font-size: 22px;
+    flex-shrink: 0;
+    border-radius: 50%;
+  }
+
+  .volume-slider-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface2);
+    outline: none;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: none;
+  }
+
+  .vol-label {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  .mute-btn {
+    width: 48px;
+    height: 48px;
+    font-size: 18px;
+    flex-shrink: 0;
+    border-radius: 50%;
+  }
+
+  .mute-btn.muted {
+    background: var(--accent);
+  }
+
+  /* Input Sources */
+  .input-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .input-grid button {
+    font-size: 12px;
+    padding: 10px 6px;
+    text-align: center;
+  }
+
+  .input-grid button.active {
+    background: var(--accent);
+  }
+
+  /* Bluetooth section */
+  .bt-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .bt-row button {
+    flex: 1;
+    font-size: 14px;
+  }
+
+  /* Playback */
+  .playback-row {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .playback-row button {
+    width: 52px;
+    height: 52px;
+    font-size: 20px;
+    border-radius: 50%;
+  }
+
+  .playback-row .play-btn {
+    width: 64px;
+    height: 64px;
+    font-size: 26px;
+    background: var(--accent);
+  }
+
+  .playback-extra {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 10px;
+  }
+
+  .playback-extra button {
+    font-size: 12px;
+    padding: 8px 14px;
+  }
+
+  /* Tone */
+  .tone-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .tone-control {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tone-control label {
+    font-size: 13px;
+    width: 50px;
+    flex-shrink: 0;
+  }
+
+  .tone-control button {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+    border-radius: 50%;
+  }
+
+  /* Sleep */
+  .sleep-grid {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .sleep-grid button {
+    flex: 1;
+    min-width: 55px;
+    font-size: 13px;
+    padding: 10px 6px;
+  }
+
+  /* Now Playing */
+  .now-playing {
+    text-align: center;
+    min-height: 40px;
+  }
+
+  .now-playing .np-source {
+    font-size: 12px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .now-playing .np-info {
+    font-size: 15px;
+    margin-top: 4px;
+    color: var(--text);
+    word-break: break-word;
+  }
+
+  /* Surround */
+  .surround-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .surround-grid button {
+    font-size: 11px;
+    padding: 10px 4px;
+  }
+
+  /* Raw command */
+  .raw-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .raw-row input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--surface2);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: monospace;
+  }
+
+  .raw-row input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* Log */
+  #log {
+    max-height: 120px;
+    overflow-y: auto;
+    font-size: 11px;
+    font-family: monospace;
+    color: var(--text-dim);
+    background: var(--bg);
+    border-radius: 6px;
+    padding: 8px;
+    margin-top: 8px;
+  }
+
+  #log div {
+    padding: 1px 0;
+  }
+
+  /* Reconnect button */
+  .reconnect-bar {
+    display: none;
+    text-align: center;
+    padding: 8px;
+  }
+
+  .reconnect-bar.show {
+    display: block;
+  }
+
+  .reconnect-bar button {
+    background: var(--warn);
+    color: #111;
+    font-weight: 600;
+  }
+
+  /* Surround mode label */
+  .surround-grid button.active {
+    background: var(--accent);
+  }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    padding: 12px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>CEOL N7 Remote</h1>
+  <span id="conn-status">Disconnected</span>
+</header>
+
+<div class="reconnect-bar" id="reconnect-bar">
+  <button onclick="reconnect()">Reconnect to Denon</button>
+</div>
+
+<div class="container">
+
+  <!-- Now Playing -->
+  <div class="section now-playing" id="now-playing">
+    <div class="np-source" id="np-source">--</div>
+    <div class="np-info" id="np-info">Not connected</div>
+  </div>
+
+  <!-- Power -->
+  <div class="section">
+    <div class="section-title">Power</div>
+    <div class="power-row">
+      <button class="on-btn" onclick="api('/api/power/on')">&#x23FB; ON</button>
+      <button class="off-btn" onclick="api('/api/power/off')">&#x23FB; Standby</button>
+    </div>
+  </div>
+
+  <!-- Volume -->
+  <div class="section">
+    <div class="section-title">Volume</div>
+    <div class="volume-row">
+      <button onclick="api('/api/volume/down')">&#x2212;</button>
+      <div class="volume-slider-wrap">
+        <input type="range" id="vol-slider" min="0" max="98" value="30"
+               oninput="volSliderInput(this.value)"
+               onchange="volSliderChange(this.value)">
+        <span class="vol-label" id="vol-label">--</span>
+      </div>
+      <button onclick="api('/api/volume/up')">&#x2B;</button>
+      <button class="mute-btn" id="mute-btn" onclick="api('/api/mute/toggle')" title="Mute">&#x1F507;</button>
+    </div>
+  </div>
+
+  <!-- Input Source -->
+  <div class="section">
+    <div class="section-title">Input Source</div>
+    <div class="input-grid" id="input-grid">
+      <button onclick="setInput('BT')" data-input="BT">Bluetooth</button>
+      <button onclick="setInput('CD')" data-input="CD">CD</button>
+      <button onclick="setInput('TUNER')" data-input="TUNER">Tuner</button>
+      <button onclick="setInput('USB/IPOD')" data-input="USB/IPOD">USB</button>
+      <button onclick="setInput('NET')" data-input="NET">Network</button>
+      <button onclick="setInput('AUX1')" data-input="AUX1">AUX</button>
+      <button onclick="setInput('SPOTIFY')" data-input="SPOTIFY">Spotify</button>
+      <button onclick="setInput('IRADIO')" data-input="IRADIO">iRadio</button>
+      <button onclick="setInput('SERVER')" data-input="SERVER">Server</button>
+      <button onclick="setInput('FAVORITES')" data-input="FAVORITES">Favorites</button>
+      <button onclick="setInput('OPTICAL')" data-input="OPTICAL">Optical</button>
+      <button onclick="setInput('ANALOG')" data-input="ANALOG">Analog In</button>
+    </div>
+  </div>
+
+  <!-- Bluetooth -->
+  <div class="section">
+    <div class="section-title">Bluetooth</div>
+    <p style="font-size:13px; color:var(--text-dim); margin-bottom:10px;">
+      Select Bluetooth input or enter pairing mode to connect a new device.
+    </p>
+    <div class="bt-row">
+      <button onclick="setInput('BT')">&#x1F399; Select Bluetooth</button>
+      <button class="bt-pair" onclick="btPair()">&#x1F4F6; Pairing Mode</button>
+    </div>
+  </div>
+
+  <!-- Playback -->
+  <div class="section">
+    <div class="section-title">Playback</div>
+    <div class="playback-row">
+      <button onclick="api('/api/playback/prev')">&#x23EE;</button>
+      <button onclick="api('/api/playback/stop')">&#x23F9;</button>
+      <button class="play-btn" onclick="api('/api/playback/play')">&#x23F5;</button>
+      <button onclick="api('/api/playback/pause')">&#x23F8;</button>
+      <button onclick="api('/api/playback/next')">&#x23ED;</button>
+    </div>
+    <div class="playback-extra">
+      <button onclick="api('/api/playback/repeat')">Repeat</button>
+      <button onclick="api('/api/playback/random')">Shuffle</button>
+    </div>
+  </div>
+
+  <!-- Tone Controls -->
+  <div class="section">
+    <div class="section-title">Tone</div>
+    <div class="tone-row">
+      <div class="tone-control">
+        <label>Bass</label>
+        <button onclick="api('/api/tone/bass/down')">&#x2212;</button>
+        <button onclick="api('/api/tone/bass/up')">&#x2B;</button>
+      </div>
+      <div class="tone-control">
+        <label>Treble</label>
+        <button onclick="api('/api/tone/treble/down')">&#x2212;</button>
+        <button onclick="api('/api/tone/treble/up')">&#x2B;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Surround Mode -->
+  <div class="section">
+    <div class="section-title">Sound Mode</div>
+    <div class="surround-grid" id="surround-grid">
+      <button onclick="setMode('stereo')" data-mode="STEREO">Stereo</button>
+      <button onclick="setMode('direct')" data-mode="DIRECT">Direct</button>
+      <button onclick="setMode('standard')" data-mode="STANDARD">Standard</button>
+      <button onclick="setMode('music')" data-mode="MUSIC">Music</button>
+      <button onclick="setMode('movie')" data-mode="MOVIE">Movie</button>
+      <button onclick="setMode('game')" data-mode="GAME">Game</button>
+      <button onclick="setMode('rock')" data-mode="ROCK ARENA">Rock Arena</button>
+      <button onclick="setMode('jazz')" data-mode="JAZZ CLUB">Jazz Club</button>
+      <button onclick="setMode('virtual')" data-mode="VIRTUAL">Virtual</button>
+    </div>
+  </div>
+
+  <!-- Sleep Timer -->
+  <div class="section">
+    <div class="section-title">Sleep Timer</div>
+    <div class="sleep-grid">
+      <button onclick="setSleep('off')">Off</button>
+      <button onclick="setSleep('15')">15m</button>
+      <button onclick="setSleep('30')">30m</button>
+      <button onclick="setSleep('60')">60m</button>
+      <button onclick="setSleep('90')">90m</button>
+      <button onclick="setSleep('120')">120m</button>
+    </div>
+  </div>
+
+  <!-- Raw Command -->
+  <div class="section">
+    <div class="section-title">Raw Command</div>
+    <div class="raw-row">
+      <input type="text" id="raw-cmd" placeholder="e.g. PWON, SI?, MV50"
+             onkeydown="if(event.key==='Enter')sendRaw()">
+      <button onclick="sendRaw()">Send</button>
+    </div>
+    <div id="log"></div>
+  </div>
+
+</div>
+
+<footer>Denon CEOL N7 Web Remote</footer>
+
+<script>
+// --- State ---
+let ws = null;
+let volumeTimeout = null;
+
+// --- API Helper ---
+function api(url, body) {
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  }).catch(err => log('API error: ' + err.message));
+}
+
+function setInput(src) {
+  api('/api/input/' + src);
+}
+
+function setMode(mode) {
+  api('/api/surround/' + mode);
+}
+
+function setSleep(min) {
+  api('/api/sleep/' + min);
+}
+
+function btPair() {
+  api('/api/bluetooth/pair');
+  log('Bluetooth pairing mode requested...');
+}
+
+function sendRaw() {
+  const input = document.getElementById('raw-cmd');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  api('/api/command', { cmd });
+  log('> ' + cmd);
+  input.value = '';
+}
+
+function volSliderInput(val) {
+  document.getElementById('vol-label').textContent = volumeToDb(val);
+}
+
+function volSliderChange(val) {
+  clearTimeout(volumeTimeout);
+  volumeTimeout = setTimeout(() => {
+    api('/api/volume/set', { level: parseInt(val, 10) });
+  }, 150);
+}
+
+function reconnect() {
+  api('/api/connect');
+}
+
+// --- Volume Display ---
+function volumeToDb(val) {
+  const num = parseInt(val, 10);
+  if (isNaN(num)) return val;
+  const db = num - 80;
+  if (num === 0) return '---';
+  return (db >= 0 ? '+' : '') + db + ' dB';
+}
+
+function parseVolume(val) {
+  if (!val) return 0;
+  // Handle 3-char values like "805" = 80.5
+  if (val.length === 3) return parseInt(val.substring(0, 2), 10);
+  return parseInt(val, 10);
+}
+
+// --- WebSocket ---
+function connectWs() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}`);
+
+  ws.onopen = () => {
+    log('WebSocket connected');
+  };
+
+  ws.onclose = () => {
+    log('WebSocket disconnected, reconnecting...');
+    setTimeout(connectWs, 2000);
+  };
+
+  ws.onerror = () => {};
+
+  ws.onmessage = (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      handleEvent(msg);
+    } catch (e) {}
+  };
+}
+
+function handleEvent(msg) {
+  switch (msg.type) {
+    case 'connection':
+      updateConnection(msg.value);
+      break;
+    case 'state':
+      if (msg.value) {
+        if (msg.value.power) updatePower(msg.value.power);
+        if (msg.value.volume) updateVolume(msg.value.volume);
+        if (msg.value.mute) updateMute(msg.value.mute);
+        if (msg.value.input) updateInput(msg.value.input);
+        if (msg.value.surround) updateSurround(msg.value.surround);
+      }
+      break;
+    case 'power':
+      updatePower(msg.value);
+      break;
+    case 'volume':
+      updateVolume(msg.value);
+      break;
+    case 'mute':
+      updateMute(msg.value);
+      break;
+    case 'input':
+      updateInput(msg.value);
+      break;
+    case 'surround':
+      updateSurround(msg.value);
+      break;
+    case 'sleep':
+      log('Sleep: ' + msg.value);
+      break;
+    case 'display':
+      handleDisplay(msg.value);
+      break;
+    case 'raw':
+      logRaw(msg.value);
+      break;
+  }
+}
+
+// --- UI Updates ---
+function updateConnection(val) {
+  const el = document.getElementById('conn-status');
+  const bar = document.getElementById('reconnect-bar');
+  if (val === 'connected') {
+    el.textContent = 'Connected';
+    el.className = 'connected';
+    bar.classList.remove('show');
+  } else {
+    el.textContent = val === 'error' ? 'Error' : 'Disconnected';
+    el.className = '';
+    bar.classList.add('show');
+  }
+}
+
+function updatePower(val) {
+  const np = document.getElementById('np-source');
+  if (val === 'STANDBY') {
+    np.textContent = 'Standby';
+    document.getElementById('np-info').textContent = 'Power is off';
+  }
+}
+
+function updateVolume(val) {
+  const num = parseVolume(val);
+  const slider = document.getElementById('vol-slider');
+  const label = document.getElementById('vol-label');
+  slider.value = num;
+  label.textContent = volumeToDb(num);
+}
+
+function updateMute(val) {
+  const btn = document.getElementById('mute-btn');
+  if (val === 'ON') {
+    btn.classList.add('muted');
+    btn.innerHTML = '&#x1F508;';
+  } else {
+    btn.classList.remove('muted');
+    btn.innerHTML = '&#x1F507;';
+  }
+}
+
+function updateInput(val) {
+  const np = document.getElementById('np-source');
+  np.textContent = val || '--';
+  // Highlight active input button
+  document.querySelectorAll('#input-grid button').forEach(btn => {
+    const di = btn.dataset.input;
+    btn.classList.toggle('active', di && val && val.toUpperCase().startsWith(di.toUpperCase()));
+  });
+}
+
+function updateSurround(val) {
+  document.querySelectorAll('#surround-grid button').forEach(btn => {
+    const dm = btn.dataset.mode;
+    btn.classList.toggle('active', dm && val && val.toUpperCase() === dm.toUpperCase());
+  });
+}
+
+const displayLines = {};
+function handleDisplay(line) {
+  // NSE0..NSE8 or NSA0..NSA8
+  const match = line.match(/^NS[EA](\d)(.*)/);
+  if (match) {
+    const idx = parseInt(match[1], 10);
+    let text = match[2].split('\x00')[0].trim();
+    // Remove cursor/playable info byte at start of lines 1-6
+    if (idx >= 1 && idx <= 6 && text.length > 0) {
+      text = text.substring(1).trim();
+    }
+    displayLines[idx] = text;
+    // Update now-playing info
+    const info = document.getElementById('np-info');
+    const parts = [];
+    for (let i = 1; i <= 6; i++) {
+      if (displayLines[i]) parts.push(displayLines[i]);
+    }
+    if (parts.length > 0) {
+      info.textContent = parts.join(' - ');
+    }
+  }
+}
+
+// --- Log ---
+const MAX_LOG = 50;
+function log(msg) {
+  const el = document.getElementById('log');
+  const div = document.createElement('div');
+  div.textContent = msg;
+  el.appendChild(div);
+  while (el.children.length > MAX_LOG) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+
+function logRaw(msg) {
+  // Don't flood with every raw message, just keep in log
+  const el = document.getElementById('log');
+  const div = document.createElement('div');
+  div.textContent = msg;
+  div.style.color = '#8b8bcd';
+  el.appendChild(div);
+  while (el.children.length > MAX_LOG) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+
+// --- Init ---
+connectWs();
+</script>
+</body>
+</html>

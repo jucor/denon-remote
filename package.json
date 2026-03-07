@@ -1,9 +1,11 @@
 {
-  "name": "denon",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "denon-ceol-remote",
+  "version": "2.0.0",
+  "description": "Web remote control for Denon CEOL N7 (RCD-N7)",
+  "main": "server.js",
   "scripts": {
+    "start": "node server.js",
+    "cli": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "bin": {
@@ -21,6 +23,8 @@
   "homepage": "https://github.com/jtangelder/denon-remote#readme",
   "dependencies": {
     "colors": "^1.1.2",
-    "vorpal": "^1.11.4"
+    "express": "^4.21.0",
+    "vorpal": "^1.11.4",
+    "ws": "^8.18.0"
   }
 }

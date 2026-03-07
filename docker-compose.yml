@@ -1,0 +1,12 @@
+services:
+  denon-remote:
+    build: .
+    container_name: denon-ceol-remote
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - DENON_HOST=${DENON_HOST:-192.168.1.100}
+      - PORT=3000
+    # Use host network mode if you prefer direct LAN access
+    # network_mode: host
