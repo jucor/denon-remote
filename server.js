@@ -3,12 +3,13 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const path = require('path');
 const DenonClient = require('./lib/DenonClient');
+const { discover } = require('./lib/discovery');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const DENON_HOST = process.env.DENON_HOST || '192.168.1.100';
+let denonHost = process.env.DENON_HOST || null;
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
@@ -70,7 +71,15 @@ function broadcast(msg) {
   });
 }
 
-function connectDenon() {
+function connectDenon(host) {
+  if (host) denonHost = host;
+
+  if (!denonHost) {
+    console.error('No Denon host configured');
+    broadcast({ type: 'connection', value: 'no_host' });
+    return;
+  }
+
   if (denon) {
     try { denon.end(); } catch (e) { /* ignore */ }
   }
@@ -79,8 +88,8 @@ function connectDenon() {
 
   denon.on('connect', () => {
     connected = true;
-    console.log(`Connected to Denon at ${DENON_HOST}`);
-    broadcast({ type: 'connection', value: 'connected' });
+    console.log(`Connected to Denon at ${denonHost}`);
+    broadcast({ type: 'connection', value: 'connected', host: denonHost });
     // Query initial state
     setTimeout(() => {
       sendCommand('PW?');
@@ -112,7 +121,7 @@ function connectDenon() {
     }
   });
 
-  denon.connect(DENON_HOST).catch(err => {
+  denon.connect(denonHost).catch(err => {
     console.error('Failed to connect to Denon:', err.message);
     connected = false;
   });
@@ -129,12 +138,26 @@ function sendCommand(cmd) {
 // --- REST API ---
 
 app.get('/api/status', (req, res) => {
-  res.json({ connected, state, host: DENON_HOST });
+  res.json({ connected, state, host: denonHost });
 });
 
+// Discovery endpoint
+app.post('/api/discover', async (req, res) => {
+  try {
+    broadcast({ type: 'discovery', value: 'scanning' });
+    const devices = await discover();
+    broadcast({ type: 'discovery', value: 'done', devices });
+    res.json({ ok: true, devices });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Connect to a specific host (or reconnect to current)
 app.post('/api/connect', (req, res) => {
-  connectDenon();
-  res.json({ ok: true });
+  const { host } = req.body || {};
+  connectDenon(host || denonHost);
+  res.json({ ok: true, host: denonHost });
 });
 
 app.post('/api/command', (req, res) => {
@@ -289,7 +312,11 @@ app.post('/api/refresh', (req, res) => {
 
 wss.on('connection', ws => {
   // Send current state on connect
-  ws.send(JSON.stringify({ type: 'connection', value: connected ? 'connected' : 'disconnected' }));
+  ws.send(JSON.stringify({
+    type: 'connection',
+    value: connected ? 'connected' : (denonHost ? 'disconnected' : 'no_host'),
+    host: denonHost,
+  }));
   ws.send(JSON.stringify({ type: 'state', value: state }));
 
   ws.on('message', msg => {
@@ -307,8 +334,32 @@ wss.on('connection', ws => {
 
 // --- Start ---
 
-server.listen(PORT, () => {
-  console.log(`Denon CEOL N7 Remote running on http://0.0.0.0:${PORT}`);
-  console.log(`Connecting to Denon at ${DENON_HOST}...`);
-  connectDenon();
-});
+async function start() {
+  // If no host configured, auto-discover
+  if (!denonHost) {
+    console.log('No DENON_HOST set, running auto-discovery...');
+    try {
+      const devices = await discover();
+      if (devices.length > 0) {
+        denonHost = devices[0].ip;
+        console.log(`Auto-discovered Denon at ${denonHost} (${devices[0].name})`);
+      } else {
+        console.log('No Denon receivers found. Set DENON_HOST or use the web UI to connect manually.');
+      }
+    } catch (err) {
+      console.error('Discovery failed:', err.message);
+    }
+  }
+
+  server.listen(PORT, () => {
+    console.log(`Denon CEOL N7 Remote running on http://0.0.0.0:${PORT}`);
+    if (denonHost) {
+      console.log(`Connecting to Denon at ${denonHost}...`);
+      connectDenon();
+    } else {
+      console.log('Waiting for manual connection - open the web UI to discover or enter an IP.');
+    }
+  });
+}
+
+start();

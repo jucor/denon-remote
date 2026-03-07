@@ -386,6 +386,117 @@
     background: var(--accent);
   }
 
+  /* Discovery overlay */
+  #discovery-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 200;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+  }
+
+  #discovery-overlay.show {
+    display: flex;
+  }
+
+  .discovery-panel {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 20px;
+    width: 100%;
+    max-width: 400px;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+
+  .discovery-panel h2 {
+    font-size: 16px;
+    margin-bottom: 12px;
+  }
+
+  .discovery-panel .device-list {
+    margin: 12px 0;
+  }
+
+  .discovery-panel .device-item {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: background 0.15s;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .discovery-panel .device-item:active {
+    background: var(--accent2);
+  }
+
+  .discovery-panel .device-ip {
+    font-family: monospace;
+    font-size: 14px;
+  }
+
+  .discovery-panel .device-name {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .discovery-panel .device-badge {
+    font-size: 10px;
+    background: var(--accent2);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .manual-connect {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .manual-connect input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--surface2);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: monospace;
+  }
+
+  .manual-connect input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .scanning-msg {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  .scanning-msg .spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--text-dim);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   /* Footer */
   footer {
     text-align: center;
@@ -403,7 +514,30 @@
 </header>
 
 <div class="reconnect-bar" id="reconnect-bar">
-  <button onclick="reconnect()">Reconnect to Denon</button>
+  <button onclick="reconnect()">Reconnect</button>
+  <button onclick="showDiscovery()" style="margin-left:8px">Find Denon</button>
+</div>
+
+<!-- Discovery Overlay -->
+<div id="discovery-overlay">
+  <div class="discovery-panel">
+    <h2>Connect to Denon</h2>
+    <p style="font-size:13px; color:var(--text-dim); margin-bottom:8px;">
+      Scan your network for Denon receivers, or enter an IP manually.
+    </p>
+    <button onclick="runDiscovery()" style="width:100%">Scan Network</button>
+    <div id="discovery-status"></div>
+    <div class="device-list" id="device-list"></div>
+    <div style="font-size:12px; color:var(--text-dim); margin:8px 0 4px">Or enter IP address:</div>
+    <div class="manual-connect">
+      <input type="text" id="manual-ip" placeholder="192.168.1.100"
+             onkeydown="if(event.key==='Enter')manualConnect()">
+      <button onclick="manualConnect()">Connect</button>
+    </div>
+    <div style="text-align:center; margin-top:12px">
+      <button onclick="hideDiscovery()" style="background:transparent; color:var(--text-dim); font-size:13px">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <div class="container">
@@ -602,6 +736,60 @@ function reconnect() {
   api('/api/connect');
 }
 
+// --- Discovery ---
+function showDiscovery() {
+  document.getElementById('discovery-overlay').classList.add('show');
+}
+
+function hideDiscovery() {
+  document.getElementById('discovery-overlay').classList.remove('show');
+}
+
+function runDiscovery() {
+  const status = document.getElementById('discovery-status');
+  const list = document.getElementById('device-list');
+  status.innerHTML = '<div class="scanning-msg"><span class="spinner"></span>Scanning network (SSDP + port scan)...</div>';
+  list.innerHTML = '';
+
+  fetch('/api/discover', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      status.innerHTML = '';
+      if (!data.devices || data.devices.length === 0) {
+        status.innerHTML = '<div class="scanning-msg">No Denon receivers found. Try entering the IP manually.</div>';
+        return;
+      }
+      list.innerHTML = '';
+      for (const dev of data.devices) {
+        const item = document.createElement('div');
+        item.className = 'device-item';
+        item.onclick = () => connectToHost(dev.ip);
+        item.innerHTML =
+          '<div>' +
+            '<div class="device-ip">' + dev.ip + '</div>' +
+            '<div class="device-name">' + (dev.name || 'Unknown') + '</div>' +
+          '</div>' +
+          '<div class="device-badge">' + (dev.method || '') + '</div>';
+        list.appendChild(item);
+      }
+    })
+    .catch(err => {
+      status.innerHTML = '<div class="scanning-msg">Scan failed: ' + err.message + '</div>';
+    });
+}
+
+function manualConnect() {
+  const ip = document.getElementById('manual-ip').value.trim();
+  if (!ip) return;
+  connectToHost(ip);
+}
+
+function connectToHost(host) {
+  log('Connecting to ' + host + '...');
+  hideDiscovery();
+  api('/api/connect', { host });
+}
+
 // --- Volume Display ---
 function volumeToDb(val) {
   const num = parseInt(val, 10);
@@ -645,7 +833,11 @@ function connectWs() {
 function handleEvent(msg) {
   switch (msg.type) {
     case 'connection':
-      updateConnection(msg.value);
+      updateConnection(msg.value, msg.host);
+      break;
+    case 'discovery':
+      if (msg.value === 'scanning') log('Network scan in progress...');
+      else if (msg.value === 'done') log('Discovery found ' + (msg.devices || []).length + ' device(s)');
       break;
     case 'state':
       if (msg.value) {
@@ -684,13 +876,21 @@ function handleEvent(msg) {
 }
 
 // --- UI Updates ---
-function updateConnection(val) {
+function updateConnection(val, host) {
   const el = document.getElementById('conn-status');
   const bar = document.getElementById('reconnect-bar');
   if (val === 'connected') {
-    el.textContent = 'Connected';
+    el.textContent = 'Connected' + (host ? ' (' + host + ')' : '');
     el.className = 'connected';
     bar.classList.remove('show');
+    document.getElementById('np-info').textContent = 'Connected';
+  } else if (val === 'no_host') {
+    el.textContent = 'No Host';
+    el.className = '';
+    bar.classList.add('show');
+    document.getElementById('np-info').textContent = 'No Denon host configured - click "Find Denon"';
+    // Auto-show discovery if no host
+    showDiscovery();
   } else {
     el.textContent = val === 'error' ? 'Error' : 'Disconnected';
     el.className = '';
