@@ -53,7 +53,7 @@ DENON_HOST=192.168.1.100 npm start
 
 | Environment Variable | Default | Description |
 |---|---|---|
-| `DENON_HOST` | `192.168.1.100` | IP address of your Denon CEOL N7 |
+| `DENON_HOST` | `null` (auto-discover) | IP address of your Denon CEOL N7. Docker Compose defaults to `192.168.1.100`. |
 | `PORT` | `3000` | Web server port |
 
 ## Prerequisites

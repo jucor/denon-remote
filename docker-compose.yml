@@ -8,5 +8,6 @@ services:
     environment:
       - DENON_HOST=${DENON_HOST:-192.168.1.100}
       - PORT=3000
-    # Use host network mode if you prefer direct LAN access
+    # NOTE: SSDP auto-discovery and subnet scanning require host network mode.
+    # Uncomment the next line to enable host networking so discovery can see your LAN:
     # network_mode: host

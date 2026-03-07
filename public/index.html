@@ -696,7 +696,7 @@ function api(url, body) {
 }
 
 function setInput(src) {
-  api('/api/input/' + src);
+  api('/api/input/' + encodeURIComponent(src));
 }
 
 function setMode(mode) {
@@ -764,12 +764,25 @@ function runDiscovery() {
         const item = document.createElement('div');
         item.className = 'device-item';
         item.onclick = () => connectToHost(dev.ip);
-        item.innerHTML =
-          '<div>' +
-            '<div class="device-ip">' + dev.ip + '</div>' +
-            '<div class="device-name">' + (dev.name || 'Unknown') + '</div>' +
-          '</div>' +
-          '<div class="device-badge">' + (dev.method || '') + '</div>';
+
+        const infoContainer = document.createElement('div');
+        const ipEl = document.createElement('div');
+        ipEl.className = 'device-ip';
+        ipEl.textContent = dev.ip;
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'device-name';
+        nameEl.textContent = dev.name || 'Unknown';
+
+        infoContainer.appendChild(ipEl);
+        infoContainer.appendChild(nameEl);
+
+        const badgeEl = document.createElement('div');
+        badgeEl.className = 'device-badge';
+        badgeEl.textContent = dev.method || '';
+
+        item.appendChild(infoContainer);
+        item.appendChild(badgeEl);
         list.appendChild(item);
       }
     })

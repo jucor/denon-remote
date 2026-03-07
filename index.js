@@ -28,8 +28,17 @@ const commands = {
     desc: 'Show this help',
     run() {
       console.log('\nAvailable commands:');
+      const aliases = { v: 'volume', i: 'input', m: 'mode', q: 'quit', exit: 'quit' };
+      const aliasMap = {};
+      for (const [alias, target] of Object.entries(aliases)) {
+        if (!aliasMap[target]) aliasMap[target] = [];
+        aliasMap[target].push(alias);
+      }
       for (const [name, cmd] of Object.entries(commands)) {
-        console.log(`  ${name.padEnd(20)} ${dim(cmd.desc)}`);
+        if (aliases[name]) continue; // skip alias entries
+        const aliasSuffix = aliasMap[name] ? ` (${aliasMap[name].join(', ')})` : '';
+        const label = `${name}${aliasSuffix}`;
+        console.log(`  ${label.padEnd(20)} ${dim(cmd.desc)}`);
       }
       console.log(`  ${'<raw command>'.padEnd(20)} ${dim('Send any raw telnet command (e.g. PWON, SI?, MV50)')}`);
       console.log();
@@ -42,9 +51,9 @@ const commands = {
   stop:     { desc: 'Stop',                run: () => denon.command('NS9C') },
   next:     { desc: 'Next track',          run: () => denon.command('NS9D') },
   prev:     { desc: 'Previous track',      run: () => denon.command('NS9E') },
-  mute:     { desc: 'Toggle mute',         run: () => denon.command('MU?').then(() => {/* toggle handled by user */}) },
+  mute:     { desc: 'Query mute state',     run: () => denon.command('MU?') },
   bluetooth:{ desc: 'Switch to Bluetooth',  run: () => denon.command('SIBT') },
-  btpair:   { desc: 'Bluetooth pairing mode', run: () => denon.command('SIBT') },
+  btpair:   { desc: 'Bluetooth pairing mode (same as bluetooth)', run: () => denon.command('SIBT') },
   status:   { desc: 'Query all status',    run() {
     denon.command('PW?');
     setTimeout(() => denon.command('MV?'), 100);
@@ -55,7 +64,19 @@ const commands = {
   'volume': {
     desc: 'Volume [level 0-98] or ? to query',
     run(args) {
-      const arg = args[0] != null ? range(parseInt(args[0], 10), 0, 98) : '?';
+      let arg = '?';
+      if (args[0] != null && args[0] !== '') {
+        if (args[0] === '?') {
+          arg = '?';
+        } else {
+          const vol = parseInt(args[0], 10);
+          if (Number.isNaN(vol)) {
+            console.error(red('Invalid volume: please provide a number between 0 and 98.'));
+            return;
+          }
+          arg = range(vol, 0, 98);
+        }
+      }
       denon.command(`MV${arg}`);
     },
   },

@@ -81,7 +81,10 @@ function connectDenon(host) {
   }
 
   if (denon) {
-    try { denon.end(); } catch (e) { /* ignore */ }
+    const oldDenon = denon;
+    denon = null;
+    oldDenon.removeAllListeners();
+    try { oldDenon.end(); } catch (e) { /* ignore */ }
   }
 
   denon = new DenonClient();
@@ -192,7 +195,11 @@ app.post('/api/volume/down', (req, res) => {
 
 app.post('/api/volume/set', (req, res) => {
   const { level } = req.body;
-  const val = Math.max(0, Math.min(98, parseInt(level, 10)));
+  const parsed = parseInt(level, 10);
+  if (Number.isNaN(parsed) || !Number.isFinite(parsed)) {
+    return res.status(400).json({ ok: false, error: 'Invalid volume level' });
+  }
+  const val = Math.max(0, Math.min(98, parsed));
   const padded = val.toString().padStart(2, '0');
   sendCommand(`MV${padded}`);
   res.json({ ok: true, level: val });
@@ -278,7 +285,11 @@ app.post('/api/sleep/:minutes', (req, res) => {
   if (min === 'off' || min === 'OFF') {
     sendCommand('SLPOFF');
   } else {
-    const val = Math.max(1, Math.min(120, parseInt(min, 10)));
+    const parsed = parseInt(min, 10);
+    if (Number.isNaN(parsed)) {
+      return res.status(400).json({ error: 'Invalid minutes value' });
+    }
+    const val = Math.max(1, Math.min(120, parsed));
     const padded = val.toString().padStart(3, '0');
     sendCommand(`SLP${padded}`);
   }
