@@ -12,6 +12,21 @@ const wss = new WebSocketServer({ server });
 let denonHost = process.env.DENON_HOST || null;
 const PORT = process.env.PORT || 3000;
 
+// --- HTTP Command Transport ---
+// Commands are sent via HTTP (fire-and-forget, no connection limit)
+// Status is received via telnet (push, rich data)
+
+function sendHttpCommand(cmd) {
+  if (!denonHost) return false;
+  const url = `http://${denonHost}/goform/formiPhoneAppDirect.xml?${encodeURIComponent(cmd)}`;
+  http.get(url, (res) => {
+    res.resume(); // drain response
+  }).on('error', (err) => {
+    console.error('HTTP command error:', err.message);
+  });
+  return true;
+}
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -148,17 +163,23 @@ function connectDenon(host) {
 }
 
 function sendCommand(cmd) {
-  if (!denon || !connected) {
-    return false;
+  // Query commands (ending with ?) go via telnet if connected, so we get the response on the event stream
+  // All other commands go via HTTP (fire-and-forget, no connection limit)
+  if (cmd.endsWith('?') || cmd === 'NSE') {
+    if (denon && connected) {
+      denon.command(cmd);
+      return true;
+    }
+    // Fallback: send via HTTP even for queries (won't get response but at least it executes)
+    return sendHttpCommand(cmd);
   }
-  denon.command(cmd);
-  return true;
+  return sendHttpCommand(cmd);
 }
 
 // --- REST API ---
 
 app.get('/api/status', (req, res) => {
-  res.json({ connected, state, host: denonHost });
+  res.json({ connected, state, host: denonHost, httpAvailable: !!denonHost });
 });
 
 // Discovery endpoint
@@ -183,8 +204,9 @@ app.post('/api/connect', (req, res) => {
 app.post('/api/command', (req, res) => {
   const { cmd } = req.body;
   if (!cmd) return res.status(400).json({ error: 'cmd required' });
+  if (!denonHost) return res.status(503).json({ error: 'No Denon host configured' });
   const ok = sendCommand(cmd);
-  if (!ok) return res.status(503).json({ error: 'Not connected to Denon' });
+  if (!ok) return res.status(503).json({ error: 'Failed to send command' });
   res.json({ ok: true, cmd });
 });
 
@@ -375,6 +397,7 @@ wss.on('connection', ws => {
     type: 'connection',
     value: connected ? 'connected' : (denonHost ? 'disconnected' : 'no_host'),
     host: denonHost,
+    httpAvailable: !!denonHost,
   }));
   ws.send(JSON.stringify({ type: 'state', value: state }));
 

@@ -1039,7 +1039,7 @@ function connectWs() {
 function handleEvent(msg) {
   switch (msg.type) {
     case 'connection':
-      updateConnection(msg.value, msg.host);
+      updateConnection(msg.value, msg.host, msg.httpAvailable);
       break;
     case 'discovery':
       if (msg.value === 'scanning') log('Network scan in progress...');
@@ -1091,7 +1091,7 @@ function handleEvent(msg) {
 }
 
 // --- UI Updates ---
-function updateConnection(val, host) {
+function updateConnection(val, host, httpAvailable) {
   const el = document.getElementById('conn-status');
   const bar = document.getElementById('reconnect-bar');
   if (val === 'connected') {
@@ -1106,6 +1106,11 @@ function updateConnection(val, host) {
     document.getElementById('np-info').textContent = 'No Denon host configured - click "Find Denon"';
     // Auto-show discovery if no host
     showDiscovery();
+  } else if (httpAvailable) {
+    el.textContent = 'HTTP only';
+    el.className = '';
+    bar.classList.remove('show');
+    document.getElementById('np-info').textContent = 'Controls work, but live status unavailable \u2014 another remote session may be connected (the receiver only allows one)';
   } else {
     el.textContent = val === 'error' ? 'Error' : 'Disconnected';
     el.className = '';
