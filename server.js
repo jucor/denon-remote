@@ -85,6 +85,12 @@ function parseResponse(data) {
       events.push({ type: 'cdStatus', track, mins, secs, transport: cdTransport });
     } else if (line.startsWith('NSE') || line.startsWith('NSA')) {
       events.push({ type: 'display', value: line });
+    } else if (line.startsWith('PSBAS')) {
+      state.bass = line.substring(5).trim();
+      events.push({ type: 'bass', value: state.bass });
+    } else if (line.startsWith('PSTRE')) {
+      state.treble = line.substring(5).trim();
+      events.push({ type: 'treble', value: state.treble });
     } else if (line.startsWith('PSSDB ')) {
       state.sdb = line.substring(6);
       events.push({ type: 'sdb', value: state.sdb });
@@ -138,7 +144,9 @@ function connectDenon(host) {
       setTimeout(() => sendCommand('MS?'), 400);
       setTimeout(() => sendCommand('SLP?'), 500);
       setTimeout(() => sendCommand('PSSDB ?'), 600);
-      setTimeout(() => sendCommand('NSE'), 700);
+      setTimeout(() => sendCommand('PSBAS ?'), 700);
+      setTimeout(() => sendCommand('PSTRE ?'), 800);
+      setTimeout(() => sendCommand('NSE'), 900);
     }, 500);
   });
 
@@ -475,6 +483,7 @@ app.post('/api/tone/bass/:direction', (req, res) => {
   const dir = req.params.direction.toUpperCase();
   if (dir === 'UP' || dir === 'DOWN') {
     sendCommand(`PSBAS ${dir}`);
+    setTimeout(() => sendCommand('PSBAS ?'), 200);
   }
   res.json({ ok: true });
 });
@@ -483,6 +492,7 @@ app.post('/api/tone/treble/:direction', (req, res) => {
   const dir = req.params.direction.toUpperCase();
   if (dir === 'UP' || dir === 'DOWN') {
     sendCommand(`PSTRE ${dir}`);
+    setTimeout(() => sendCommand('PSTRE ?'), 200);
   }
   res.json({ ok: true });
 });

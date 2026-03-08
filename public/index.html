@@ -412,7 +412,7 @@
 
   .tone-control label {
     font-size: 13px;
-    width: 50px;
+    min-width: 50px;
     flex-shrink: 0;
   }
 
@@ -808,12 +808,12 @@
       <div class="section-title">Tone</div>
       <div class="tone-row">
         <div class="tone-control">
-          <label>Bass</label>
+          <label>Bass <span id="bass-val" style="color:var(--text-dim);font-size:11px"></span></label>
           <button onclick="api('/api/tone/bass/down')">&#x2212;</button>
           <button onclick="api('/api/tone/bass/up')">&#x2B;</button>
         </div>
         <div class="tone-control">
-          <label>Treble</label>
+          <label>Treble <span id="treble-val" style="color:var(--text-dim);font-size:11px"></span></label>
           <button onclick="api('/api/tone/treble/down')">&#x2212;</button>
           <button onclick="api('/api/tone/treble/up')">&#x2B;</button>
         </div>
@@ -1083,6 +1083,8 @@ function handleEvent(msg) {
         if (msg.value.input) updateInput(msg.value.input);
         if (msg.value.surround) updateSurround(msg.value.surround);
         if (msg.value.sdb) updateSdb(msg.value.sdb);
+        if (msg.value.bass) updateBass(msg.value.bass);
+        if (msg.value.treble) updateTreble(msg.value.treble);
         // Request display info so Receiver Display populates on page load
         setTimeout(() => api('/api/command', { cmd: 'NSE' }), 300);
       }
@@ -1110,6 +1112,12 @@ function handleEvent(msg) {
       break;
     case 'sdb':
       updateSdb(msg.value);
+      break;
+    case 'bass':
+      updateBass(msg.value);
+      break;
+    case 'treble':
+      updateTreble(msg.value);
       break;
     case 'display':
       handleDisplay(msg.value);
@@ -1365,17 +1373,27 @@ function updateMute(val) {
   }
 }
 
+// Inputs that use NSE display data (network audio sources)
+const NSE_INPUTS = new Set(['IRADIO', 'SERVER', 'FAVORITES', 'USB', 'NETWORK', 'SPOTIFY', 'NAPSTER', 'IRP']);
+let currentInput = null;
+
+function isNseInput() {
+  return currentInput && NSE_INPUTS.has(currentInput.toUpperCase());
+}
+
 function updateInput(val) {
+  currentInput = val;
   const np = document.getElementById('np-source');
   np.textContent = val || '--';
-  // Update now-playing info — show source details or telnet hint
+  // Clear stale now-playing info on input change (preserve power transition messages)
   const info = document.getElementById('np-info');
-  if (info.textContent === 'Not connected' || info.textContent === 'Connecting...' ||
-      info.textContent === '' || info.textContent.startsWith('Track info')) {
+  if (info.textContent !== 'Starting up\u2026' &&
+      info.textContent !== 'Shutting down\u2026' &&
+      info.textContent !== 'Power is off') {
     if (!isTelnetConnected && val) {
       info.textContent = 'Track info requires telnet \u2014 click Connect above';
     } else {
-      info.textContent = val || '';
+      info.textContent = '';
     }
   }
   // Highlight active input button
@@ -1414,10 +1432,29 @@ function updateSdb(val) {
   btn.classList.toggle('active', val === 'ON');
 }
 
+function toneToDb(val) {
+  // Denon tone values: 44–56, where 50 = 0dB (flat), each step = 2dB
+  const num = parseInt(val, 10);
+  if (isNaN(num)) return val;
+  const db = (num - 50) * 2;
+  if (db === 0) return '0';
+  return (db > 0 ? '+' : '') + db;
+}
+
+function updateBass(val) {
+  document.getElementById('bass-val').textContent = toneToDb(val);
+}
+
+function updateTreble(val) {
+  document.getElementById('treble-val').textContent = toneToDb(val);
+}
+
 const displayLines = {};
 const displayMeta = {}; // { cursor: bool, selectable: bool } per line
 function handleDisplay(line) {
-  // NSE0..NSE8 or NSA0..NSA8
+  // NSE0..NSE8 or NSA0..NSA8 — only relevant for network audio sources
+  if (!isNseInput()) return;
+
   const match = line.match(/^NS[EA](\d)([\s\S]*)/);
   if (match) {
     const idx = parseInt(match[1], 10);
