@@ -21,6 +21,8 @@ function sendHttpCommand(cmd) {
   const url = `http://${denonHost}/goform/formiPhoneAppDirect.xml?${encodeURIComponent(cmd)}`;
   http.get(url, (res) => {
     res.resume(); // drain response
+    // Poll immediately after command so UI reflects the change
+    if (httpPollTimer) setTimeout(pollHttpStatus, 300);
   }).on('error', (err) => {
     console.error('HTTP command error:', err.message);
   });
@@ -123,6 +125,7 @@ function connectDenon(host) {
   denon.on('connect', () => {
     connected = true;
     console.log(`Connected to Denon at ${denonHost}`);
+    updateHttpPolling(); // stop polling, telnet takes over
     broadcast({ type: 'connection', value: 'connected', host: denonHost });
     // Query initial state
     setTimeout(() => {
@@ -140,13 +143,17 @@ function connectDenon(host) {
   denon.on('error', err => {
     console.error('Denon connection error:', err.message);
     connected = false;
-    broadcast({ type: 'connection', value: 'error', message: err.message });
+    broadcast({ type: 'connection', value: 'error', message: err.message, httpAvailable: !!denonHost, telnetDisabled });
+    scheduleTelnetRetry();
+    updateHttpPolling(); // start polling as fallback
   });
 
   denon.on('close', () => {
     console.log('Denon connection closed');
     connected = false;
-    broadcast({ type: 'connection', value: 'disconnected' });
+    broadcast({ type: 'connection', value: 'disconnected', httpAvailable: !!denonHost, telnetDisabled });
+    scheduleTelnetRetry();
+    updateHttpPolling(); // start polling as fallback
   });
 
   denon.on('data', buffer => {
@@ -159,7 +166,135 @@ function connectDenon(host) {
   denon.connect(denonHost).catch(err => {
     console.error('Failed to connect to Denon:', err.message);
     connected = false;
+    scheduleTelnetRetry();
   });
+}
+
+// --- Telnet lifecycle: only connect when active tabs exist ---
+
+let telnetRetryTimer = null;
+const TELNET_RETRY_INTERVAL = 10000; // retry every 10s
+let activeTabs = 0; // count of visible browser tabs
+let telnetDisabled = false; // true after manual disconnect, cleared by manual connect
+
+function scheduleTelnetRetry() {
+  if (telnetRetryTimer) return;
+  if (activeTabs <= 0) return;
+  if (telnetDisabled) return; // manual disconnect — don't auto-reconnect
+  telnetRetryTimer = setTimeout(() => {
+    telnetRetryTimer = null;
+    if (!connected && denonHost && activeTabs > 0 && !telnetDisabled) {
+      console.log('Retrying telnet connection...');
+      connectDenon();
+    }
+  }, TELNET_RETRY_INTERVAL);
+}
+
+function cancelTelnetRetry() {
+  if (telnetRetryTimer) {
+    clearTimeout(telnetRetryTimer);
+    telnetRetryTimer = null;
+  }
+}
+
+function disconnectTelnet() {
+  cancelTelnetRetry();
+  if (denon) {
+    console.log('Disconnecting telnet');
+    const oldDenon = denon;
+    denon = null;
+    connected = false;
+    oldDenon.removeAllListeners();
+    try { oldDenon.end(); } catch (e) { /* ignore */ }
+  }
+  updateHttpPolling();
+}
+
+function onActiveTabsChanged() {
+  if (activeTabs > 0 && !connected && denonHost && !telnetDisabled) {
+    console.log(`Active tabs: ${activeTabs}, connecting telnet...`);
+    connectDenon();
+  } else if (activeTabs <= 0 && (connected || denon)) {
+    disconnectTelnet();
+  }
+  updateHttpPolling();
+}
+
+// --- HTTP Status Polling (fallback when telnet is unavailable) ---
+
+let httpPollTimer = null;
+const HTTP_POLL_INTERVAL = 2000; // poll every 2s
+
+function updateHttpPolling() {
+  const shouldPoll = activeTabs > 0 && !connected && denonHost;
+  if (shouldPoll && !httpPollTimer) {
+    console.log('Starting HTTP status polling');
+    pollHttpStatus(); // immediate first poll
+    httpPollTimer = setInterval(pollHttpStatus, HTTP_POLL_INTERVAL);
+  } else if (!shouldPoll && httpPollTimer) {
+    console.log('Stopping HTTP status polling');
+    clearInterval(httpPollTimer);
+    httpPollTimer = null;
+  }
+}
+
+function pollHttpStatus() {
+  if (!denonHost) return;
+  const url = `http://${denonHost}/goform/formMainZone_MainZoneXmlStatusLite.xml`;
+  http.get(url, (res) => {
+    let data = '';
+    res.on('data', chunk => { data += chunk; });
+    res.on('end', () => {
+      parseHttpStatus(data);
+    });
+  }).on('error', () => {
+    // silently ignore poll errors
+  });
+}
+
+function parseHttpStatus(xml) {
+  // Simple regex parsing — no XML library needed for this tiny response
+  const get = (tag) => {
+    const m = xml.match(new RegExp(`<${tag}><value>(.*?)</value></${tag}>`));
+    return m ? m[1] : null;
+  };
+
+  const power = get('Power');
+  const input = get('InputFuncSelect');
+  const volumeDb = get('MasterVolume');
+  const mute = get('Mute');
+
+  // Convert dB to Denon scale: -80dB = 0, 0dB = 80
+  // The CEOL uses 0-60 range, so -80 maps to 0, -20 maps to 60
+  let volume = null;
+  if (volumeDb !== null) {
+    const db = parseFloat(volumeDb);
+    if (!isNaN(db)) {
+      volume = String(Math.round(db + 80));
+      if (volume.length === 1) volume = '0' + volume;
+    }
+  }
+
+  // Broadcast changes (only if different from current state)
+  if (power !== null && power !== state.power) {
+    state.power = power;
+    broadcast({ type: 'power', value: power });
+  }
+  if (input !== null && input !== state.input) {
+    state.input = input;
+    broadcast({ type: 'input', value: input });
+  }
+  if (volume !== null && volume !== state.volume) {
+    state.volume = volume;
+    broadcast({ type: 'volume', value: volume });
+  }
+  if (mute !== null) {
+    const muteVal = mute.toUpperCase();
+    if (muteVal !== state.mute) {
+      state.mute = muteVal;
+      broadcast({ type: 'mute', value: muteVal });
+    }
+  }
 }
 
 function sendCommand(cmd) {
@@ -201,6 +336,23 @@ app.post('/api/connect', (req, res) => {
   res.json({ ok: true, host: denonHost });
 });
 
+// Disconnect telnet (free it for other clients, stop retrying)
+app.post('/api/disconnect', (req, res) => {
+  telnetDisabled = true;
+  disconnectTelnet();
+  broadcast({ type: 'connection', value: 'disconnected', httpAvailable: !!denonHost, telnetDisabled: true });
+  res.json({ ok: true });
+});
+
+// Manually reconnect telnet (clears manual disconnect, starts retrying)
+app.post('/api/telnet', (req, res) => {
+  telnetDisabled = false;
+  if (!connected && denonHost) {
+    connectDenon();
+  }
+  res.json({ ok: true });
+});
+
 app.post('/api/command', (req, res) => {
   const { cmd } = req.body;
   if (!cmd) return res.status(400).json({ error: 'cmd required' });
@@ -238,7 +390,7 @@ app.post('/api/volume/set', (req, res) => {
   if (Number.isNaN(parsed) || !Number.isFinite(parsed)) {
     return res.status(400).json({ ok: false, error: 'Invalid volume level' });
   }
-  const val = Math.max(0, Math.min(98, parsed));
+  const val = Math.max(0, Math.min(60, parsed));
   const padded = val.toString().padStart(2, '0');
   sendCommand(`MV${padded}`);
   res.json({ ok: true, level: val });
@@ -392,24 +544,47 @@ app.post('/api/refresh', (req, res) => {
 // --- WebSocket ---
 
 wss.on('connection', ws => {
+  ws._tabVisible = false; // track this client's visibility
+
   // Send current state on connect
   ws.send(JSON.stringify({
     type: 'connection',
     value: connected ? 'connected' : (denonHost ? 'disconnected' : 'no_host'),
     host: denonHost,
     httpAvailable: !!denonHost,
+    telnetDisabled,
   }));
   ws.send(JSON.stringify({ type: 'state', value: state }));
 
   ws.on('message', msg => {
     try {
       const data = JSON.parse(msg);
-      if (data.cmd) {
+      if (data.type === 'visibility') {
+        const wasVisible = ws._tabVisible;
+        ws._tabVisible = data.value === 'visible';
+        if (ws._tabVisible && !wasVisible) {
+          activeTabs++;
+          console.log(`Tab became visible (active: ${activeTabs})`);
+          onActiveTabsChanged();
+        } else if (!ws._tabVisible && wasVisible) {
+          activeTabs = Math.max(0, activeTabs - 1);
+          console.log(`Tab became hidden (active: ${activeTabs})`);
+          onActiveTabsChanged();
+        }
+      } else if (data.cmd) {
         sendCommand(data.cmd);
       }
     } catch (e) {
       // Raw command string
       sendCommand(msg.toString());
+    }
+  });
+
+  ws.on('close', () => {
+    if (ws._tabVisible) {
+      activeTabs = Math.max(0, activeTabs - 1);
+      console.log(`Tab disconnected (active: ${activeTabs})`);
+      onActiveTabsChanged();
     }
   });
 });
@@ -436,8 +611,7 @@ async function start() {
   server.listen(PORT, () => {
     console.log(`Denon CEOL N7 Remote running on http://0.0.0.0:${PORT}`);
     if (denonHost) {
-      console.log(`Connecting to Denon at ${denonHost}...`);
-      connectDenon();
+      console.log(`Denon host: ${denonHost} (telnet connects when a browser tab opens)`);
     } else {
       console.log('Waiting for manual connection - open the web UI to discover or enter an IP.');
     }

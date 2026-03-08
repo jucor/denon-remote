@@ -681,7 +681,11 @@
 
 <header>
   <h1>CEOL N7 Remote</h1>
-  <span id="conn-status">Disconnected</span>
+  <div style="display:flex; align-items:center; gap:8px">
+    <button id="telnet-btn" onclick="apiTelnet()" style="display:none; font-size:11px; padding:4px 10px; border-radius:20px; background:var(--success); color:#111">Connect</button>
+    <button id="disconnect-btn" onclick="apiDisconnect()" style="display:none; font-size:11px; padding:4px 10px; border-radius:20px; background:var(--surface2)">Disconnect</button>
+    <span id="conn-status">Disconnected</span>
+  </div>
 </header>
 
 <div class="reconnect-bar" id="reconnect-bar">
@@ -728,12 +732,16 @@
   <div class="cell-group">
     <div class="section">
       <div class="section-title">Power</div>
-      <div class="power-toggle">
+      <div class="power-toggle" id="power-toggle-known">
         <span class="label left" id="power-label-off">Standby</span>
         <div class="track" id="power-track" onclick="togglePower()"><div class="knob"></div></div>
         <span class="label right" id="power-label-on">ON</span>
         <div class="spinner" id="power-spinner"></div>
         <span class="boot-msg" id="power-boot-msg">Starting up…</span>
+      </div>
+      <div class="power-toggle" id="power-toggle-unknown" style="display:none">
+        <button class="on-btn" onclick="api('/api/power/on')" style="padding:10px 20px">Power ON</button>
+        <button class="off-btn" onclick="api('/api/power/off')" style="padding:10px 20px">Standby</button>
       </div>
     </div>
     <div class="section">
@@ -741,13 +749,17 @@
       <div class="volume-row">
         <button onclick="api('/api/volume/down')">&#x2212;</button>
         <div class="volume-slider-wrap">
-          <input type="range" id="vol-slider" min="0" max="98" value="30"
+          <input type="range" id="vol-slider" min="0" max="60" value="30"
                  oninput="volSliderInput(this.value)"
                  onchange="volSliderChange(this.value)">
           <span class="vol-label" id="vol-label">--</span>
         </div>
         <button onclick="api('/api/volume/up')">&#x2B;</button>
         <button class="mute-btn" id="mute-btn" onclick="api('/api/mute/toggle')" title="Mute">&#x1F507;</button>
+        <span id="mute-explicit" style="display:none">
+          <button class="mute-btn" onclick="api('/api/command',{cmd:'MUON'})" title="Mute On">&#x1F507;</button>
+          <button class="mute-btn" onclick="api('/api/command',{cmd:'MUOFF'})" title="Mute Off">&#x1F50A;</button>
+        </span>
       </div>
     </div>
   </div>
@@ -802,6 +814,10 @@
           <button onclick="api('/api/tone/treble/up')">&#x2B;</button>
         </div>
         <button id="sdb-btn" onclick="toggleSdb()" style="margin-top:8px">SDB Tone</button>
+        <span id="sdb-explicit" style="display:none">
+          <button onclick="api('/api/command',{cmd:'PSSDB ON'})" style="margin-top:8px">SDB On</button>
+          <button onclick="api('/api/command',{cmd:'PSSDB OFF'})" style="margin-top:8px">SDB Off</button>
+        </span>
       </div>
     </div>
 
@@ -874,6 +890,7 @@
 // --- State ---
 let ws = null;
 let volumeTimeout = null;
+let httpOnly = false; // true when commands work but no telnet status
 
 // --- API Helper ---
 function api(url, body) {
@@ -927,6 +944,14 @@ function volSliderChange(val) {
 
 function reconnect() {
   api('/api/connect');
+}
+
+function apiDisconnect() {
+  api('/api/disconnect');
+}
+
+function apiTelnet() {
+  api('/api/telnet');
 }
 
 // --- Discovery ---
@@ -1019,6 +1044,7 @@ function connectWs() {
 
   ws.onopen = () => {
     log('WebSocket connected');
+    sendVisibility();
   };
 
   ws.onclose = () => {
@@ -1039,7 +1065,7 @@ function connectWs() {
 function handleEvent(msg) {
   switch (msg.type) {
     case 'connection':
-      updateConnection(msg.value, msg.host, msg.httpAvailable);
+      updateConnection(msg.value, msg.host, msg.httpAvailable, msg.telnetDisabled);
       break;
     case 'discovery':
       if (msg.value === 'scanning') log('Network scan in progress...');
@@ -1091,38 +1117,88 @@ function handleEvent(msg) {
 }
 
 // --- UI Updates ---
-function updateConnection(val, host, httpAvailable) {
+function updateConnection(val, host, httpAvailable, td) {
   const el = document.getElementById('conn-status');
   const bar = document.getElementById('reconnect-bar');
+  const disconnectBtn = document.getElementById('disconnect-btn');
+  const telnetBtn = document.getElementById('telnet-btn');
   if (val === 'connected') {
     el.textContent = 'Connected' + (host ? ' (' + host + ')' : '');
     el.className = 'connected';
     bar.classList.remove('show');
     document.getElementById('np-info').textContent = 'Connected';
+    disconnectBtn.style.display = '';
+    telnetBtn.style.display = 'none';
+    setHttpOnly(false);
+  } else if (val === 'error') {
+    el.textContent = 'Connection failed';
+    el.className = '';
+    bar.classList.remove('show');
+    disconnectBtn.style.display = 'none';
+    telnetBtn.style.display = td ? '' : 'none';
+    if (httpAvailable && !powerState) setHttpOnly(true);
   } else if (val === 'no_host') {
     el.textContent = 'No Host';
     el.className = '';
     bar.classList.add('show');
     document.getElementById('np-info').textContent = 'No Denon host configured - click "Find Denon"';
-    // Auto-show discovery if no host
+    disconnectBtn.style.display = 'none';
+    telnetBtn.style.display = 'none';
     showDiscovery();
   } else if (httpAvailable) {
-    el.textContent = 'HTTP only';
+    el.textContent = td ? 'HTTP only' : 'Polling';
     el.className = '';
     bar.classList.remove('show');
-    document.getElementById('np-info').textContent = 'Controls work, but live status unavailable \u2014 another remote session may be connected (the receiver only allows one)';
+    disconnectBtn.style.display = 'none';
+    telnetBtn.style.display = td ? '' : 'none';
+    if (!powerState) {
+      document.getElementById('np-info').textContent = 'Connecting...';
+      setHttpOnly(true);
+    } else {
+      document.getElementById('np-info').textContent = td
+        ? 'HTTP only \u2014 click Connect to enable live status'
+        : 'HTTP polling \u2014 auto-connecting telnet...';
+    }
   } else {
-    el.textContent = val === 'error' ? 'Error' : 'Disconnected';
+    el.textContent = 'Disconnected';
     el.className = '';
     bar.classList.add('show');
+    disconnectBtn.style.display = 'none';
+    telnetBtn.style.display = '';
+    if (!powerState) setHttpOnly(true);
   }
 }
 
-let powerState = 'ON';
+function setHttpOnly(val) {
+  httpOnly = val;
+  // Power: toggle vs explicit buttons
+  document.getElementById('power-toggle-known').style.display = val ? 'none' : '';
+  document.getElementById('power-toggle-unknown').style.display = val ? '' : 'none';
+  // Mute: toggle vs explicit buttons
+  document.getElementById('mute-btn').style.display = val ? 'none' : '';
+  document.getElementById('mute-explicit').style.display = val ? '' : 'none';
+  // SDB: toggle vs explicit buttons
+  document.getElementById('sdb-btn').style.display = val ? 'none' : '';
+  document.getElementById('sdb-explicit').style.display = val ? '' : 'none';
+  // Volume slider: hide in HTTP-only (up/down buttons still work)
+  document.getElementById('vol-slider').style.display = val ? 'none' : '';
+  document.getElementById('vol-label').textContent = val ? '--' : (document.getElementById('vol-label').textContent || '--');
+  // Clear all active highlights (no state to back them)
+  if (val) {
+    document.querySelectorAll('#input-grid button, #mode-grid button, #sleep-grid button').forEach(btn => {
+      btn.classList.remove('active');
+    });
+  }
+}
+
+let powerState = null;
 let powerBooting = false;
 function updatePower(val) {
   powerState = val;
   powerBooting = false;
+  // State arrived (from telnet or HTTP poll) — restore normal UI
+  if (val && httpOnly) setHttpOnly(false);
+  if (!val) return;
   const np = document.getElementById('np-source');
   const track = document.getElementById('power-track');
   const labelOn = document.getElementById('power-label-on');
@@ -1142,6 +1218,7 @@ function updatePower(val) {
   }
 }
 function togglePower() {
+  if (powerState === null) return; // unknown state — use explicit on/off buttons
   if (powerState === 'STANDBY') {
     // Show booting state
     powerBooting = true;
@@ -1181,6 +1258,11 @@ function updateMute(val) {
 function updateInput(val) {
   const np = document.getElementById('np-source');
   np.textContent = val || '--';
+  // Update now-playing info
+  const info = document.getElementById('np-info');
+  if (info.textContent === 'Not connected' || info.textContent === 'Connecting...') {
+    info.textContent = val || '';
+  }
   // Highlight active input button
   document.querySelectorAll('#input-grid button').forEach(btn => {
     const di = btn.dataset.input;
@@ -1341,6 +1423,15 @@ function updateCdStatus(msg) {
   trackEl.textContent = 'Track ' + msg.track;
   timeEl.textContent = msg.mins + ':' + String(msg.secs).padStart(2, '0');
 }
+
+// --- Tab Visibility ---
+function sendVisibility() {
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'visibility', value: document.hidden ? 'hidden' : 'visible' }));
+  }
+}
+
+document.addEventListener('visibilitychange', sendVisibility);
 
 // --- Init ---
 connectWs();
