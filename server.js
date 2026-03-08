@@ -19,12 +19,14 @@ const PORT = process.env.PORT || 3000;
 function sendHttpCommand(cmd) {
   if (!denonHost) return false;
   const url = `http://${denonHost}/goform/formiPhoneAppDirect.xml?${encodeURIComponent(cmd)}`;
+  broadcast({ type: 'raw', value: '> ' + cmd + ' (HTTP)' });
   http.get(url, (res) => {
     res.resume(); // drain response
     // Poll immediately after command so UI reflects the change
     if (httpPollTimer) setTimeout(pollHttpStatus, 300);
   }).on('error', (err) => {
     console.error('HTTP command error:', err.message);
+    broadcast({ type: 'raw', value: '! HTTP error: ' + err.message });
   });
   return true;
 }

@@ -166,9 +166,13 @@
   .power-toggle .track.booting {
     background: var(--warn);
   }
-  .power-toggle .track.booting .knob {
+  .power-toggle .track.booting .knob,
+  .power-toggle .track.shutting-down .knob {
     left: 16px;
     animation: pulse-knob 1s ease-in-out infinite;
+  }
+  .power-toggle .track.shutting-down {
+    background: var(--accent);
   }
   @keyframes pulse-knob {
     0%, 100% { opacity: 1; }
@@ -737,11 +741,11 @@
         <div class="track" id="power-track" onclick="togglePower()"><div class="knob"></div></div>
         <span class="label right" id="power-label-on">ON</span>
         <div class="spinner" id="power-spinner"></div>
-        <span class="boot-msg" id="power-boot-msg">Starting up…</span>
+        <span class="boot-msg" id="power-boot-msg"></span>
       </div>
       <div class="power-toggle" id="power-toggle-unknown" style="display:none">
-        <button class="on-btn" onclick="api('/api/power/on')" style="padding:10px 20px">Power ON</button>
-        <button class="off-btn" onclick="api('/api/power/off')" style="padding:10px 20px">Standby</button>
+        <button class="on-btn" onclick="powerOn()" style="padding:10px 20px">Power ON</button>
+        <button class="off-btn" onclick="powerOff()" style="padding:10px 20px">Standby</button>
       </div>
     </div>
     <div class="section">
@@ -1117,7 +1121,10 @@ function handleEvent(msg) {
 }
 
 // --- UI Updates ---
+let isTelnetConnected = false;
+
 function updateConnection(val, host, httpAvailable, td) {
+  isTelnetConnected = (val === 'connected');
   const el = document.getElementById('conn-status');
   const bar = document.getElementById('reconnect-bar');
   const disconnectBtn = document.getElementById('disconnect-btn');
@@ -1192,47 +1199,150 @@ function setHttpOnly(val) {
 }
 
 let powerState = null;
-let powerBooting = false;
+let powerTransition = null; // null | 'booting' | 'shuttingDown'
+let powerTransitionStart = 0;
+let pendingPowerUpdate = null;
+let powerTransitionTimer = null;
+const MIN_POWER_TRANSITION_MS = 4000;
+const MAX_POWER_TRANSITION_MS = 15000;
+let powerSettleUntil = 0; // ignore contradictory states until this timestamp
+let powerSettleTarget = null; // 'ON' or 'STANDBY' — expected state after transition
+
+function powerOn() {
+  startPowerTransition('booting');
+  api('/api/power/on');
+}
+
+function powerOff() {
+  startPowerTransition('shuttingDown');
+  api('/api/power/off');
+}
+
+function togglePower() {
+  if (powerState === null || powerTransition) return;
+  if (powerState === 'STANDBY') {
+    powerOn();
+  } else {
+    powerOff();
+  }
+}
+
+function startPowerTransition(type) {
+  powerTransition = type;
+  powerTransitionStart = Date.now();
+  pendingPowerUpdate = null;
+  powerSettleUntil = 0; // clear any previous settle
+  powerSettleTarget = null;
+
+  // Show the toggle (not explicit buttons) during transition
+  document.getElementById('power-toggle-known').style.display = '';
+  document.getElementById('power-toggle-unknown').style.display = 'none';
+
+  const track = document.getElementById('power-track');
+  const spinner = document.getElementById('power-spinner');
+  const bootMsg = document.getElementById('power-boot-msg');
+
+  track.classList.remove('on', 'booting', 'shutting-down');
+
+  if (type === 'booting') {
+    track.classList.add('booting');
+    bootMsg.textContent = 'Starting up\u2026';
+    document.getElementById('np-info').textContent = 'Starting up\u2026';
+  } else {
+    track.classList.add('shutting-down');
+    bootMsg.textContent = 'Shutting down\u2026';
+    document.getElementById('np-info').textContent = 'Shutting down\u2026';
+  }
+
+  document.getElementById('power-label-on').classList.add('dim');
+  document.getElementById('power-label-off').classList.add('dim');
+  spinner.classList.add('show');
+  bootMsg.classList.add('show');
+
+  // Safety timeout — force-finish if the receiver never confirms
+  if (powerTransitionTimer) clearTimeout(powerTransitionTimer);
+  powerTransitionTimer = setTimeout(() => {
+    if (powerTransition) {
+      finishPowerTransition(pendingPowerUpdate || powerState);
+    }
+  }, MAX_POWER_TRANSITION_MS);
+}
+
+function finishPowerTransition(val) {
+  // Settle period: ignore contradictory power states for 8s after transition
+  // (the Denon HTTP API flickers during boot/shutdown)
+  powerSettleTarget = powerTransition === 'booting' ? 'ON' : 'STANDBY';
+  powerSettleUntil = Date.now() + 8000;
+  powerTransition = null;
+  pendingPowerUpdate = null;
+  if (powerTransitionTimer) {
+    clearTimeout(powerTransitionTimer);
+    powerTransitionTimer = null;
+  }
+  applyPowerState(val);
+}
+
 function updatePower(val) {
+  // During settling period, ignore states that contradict the transition target
+  // (Denon HTTP API flickers between ON/STANDBY during boot)
+  if (Date.now() < powerSettleUntil) {
+    const contradicts = (powerSettleTarget === 'ON' && val === 'STANDBY') ||
+                        (powerSettleTarget === 'STANDBY' && val !== 'STANDBY');
+    if (contradicts) return;
+  }
+
+  if (powerTransition) {
+    pendingPowerUpdate = val;
+    const isTarget = (powerTransition === 'booting' && val !== 'STANDBY') ||
+                     (powerTransition === 'shuttingDown' && val === 'STANDBY');
+    if (isTarget) {
+      const elapsed = Date.now() - powerTransitionStart;
+      if (elapsed >= MIN_POWER_TRANSITION_MS) {
+        finishPowerTransition(val);
+      } else {
+        // Target confirmed but too soon — wait for minimum transition time
+        if (powerTransitionTimer) clearTimeout(powerTransitionTimer);
+        powerTransitionTimer = setTimeout(() => {
+          if (pendingPowerUpdate !== null) {
+            finishPowerTransition(pendingPowerUpdate);
+          }
+        }, MIN_POWER_TRANSITION_MS - elapsed);
+      }
+    }
+    return;
+  }
+
+  applyPowerState(val);
+}
+
+function applyPowerState(val) {
   powerState = val;
-  powerBooting = false;
   // State arrived (from telnet or HTTP poll) — restore normal UI
   if (val && httpOnly) setHttpOnly(false);
   if (!val) return;
-  const np = document.getElementById('np-source');
   const track = document.getElementById('power-track');
   const labelOn = document.getElementById('power-label-on');
   const labelOff = document.getElementById('power-label-off');
   const spinner = document.getElementById('power-spinner');
   const bootMsg = document.getElementById('power-boot-msg');
   const isOn = val !== 'STANDBY';
-  track.classList.remove('booting');
+  track.classList.remove('booting', 'shutting-down');
   track.classList.toggle('on', isOn);
   labelOn.classList.toggle('dim', !isOn);
   labelOff.classList.toggle('dim', isOn);
   spinner.classList.remove('show');
   bootMsg.classList.remove('show');
   if (!isOn) {
-    np.textContent = 'Standby';
+    document.getElementById('np-source').textContent = 'Standby';
     document.getElementById('np-info').textContent = 'Power is off';
-  }
-}
-function togglePower() {
-  if (powerState === null) return; // unknown state — use explicit on/off buttons
-  if (powerState === 'STANDBY') {
-    // Show booting state
-    powerBooting = true;
-    const track = document.getElementById('power-track');
-    track.classList.remove('on');
-    track.classList.add('booting');
-    document.getElementById('power-label-on').classList.add('dim');
-    document.getElementById('power-label-off').classList.add('dim');
-    document.getElementById('power-spinner').classList.add('show');
-    document.getElementById('power-boot-msg').classList.add('show');
-    document.getElementById('np-info').textContent = 'Starting up…';
-    api('/api/power/on');
   } else {
-    api('/api/power/off');
+    // Clear stale standby/transition messages
+    const info = document.getElementById('np-info');
+    if (info.textContent === 'Power is off' ||
+        info.textContent === 'Starting up\u2026' ||
+        info.textContent === 'Shutting down\u2026') {
+      info.textContent = '';
+    }
   }
 }
 
@@ -1258,10 +1368,15 @@ function updateMute(val) {
 function updateInput(val) {
   const np = document.getElementById('np-source');
   np.textContent = val || '--';
-  // Update now-playing info
+  // Update now-playing info — show source details or telnet hint
   const info = document.getElementById('np-info');
-  if (info.textContent === 'Not connected' || info.textContent === 'Connecting...') {
-    info.textContent = val || '';
+  if (info.textContent === 'Not connected' || info.textContent === 'Connecting...' ||
+      info.textContent === '' || info.textContent.startsWith('Track info')) {
+    if (!isTelnetConnected && val) {
+      info.textContent = 'Track info requires telnet \u2014 click Connect above';
+    } else {
+      info.textContent = val || '';
+    }
   }
   // Highlight active input button
   document.querySelectorAll('#input-grid button').forEach(btn => {
@@ -1376,7 +1491,9 @@ function updateReceiverDisplay() {
     }
   }
   if (parts.length === 0) {
-    el.innerHTML = '<div class="display-line dim">No display data</div>';
+    el.innerHTML = isTelnetConnected
+      ? '<div class="display-line dim">No display data</div>'
+      : '<div class="display-line dim">Receiver display requires telnet \u2014 click Connect above</div>';
   } else {
     el.innerHTML = parts.join('');
   }
