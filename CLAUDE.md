@@ -28,11 +28,32 @@ When telnet is unavailable, the UI adapts:
 - No active highlighting on buttons until first HTTP poll provides state
 - Once HTTP poll returns state, normal toggle UI is restored
 
+### Internet Radio Search (via yTuner)
+
+The receiver's on-device iRadio "Search by keyword" needs modified-T9 entry on the remote,
+and the AVR protocol has **no text-input command** (and this RCD-N9 is pre-HEOS, so no HEOS
+`browse/search` either — port 1255 is closed). Instead, the web remote searches
+[radio-browser.info](https://api.radio-browser.info) and injects the chosen station into
+**yTuner**'s MyStations file. yTuner (the vTuner replacement on the NAS, container `ytuner`
+at LAN IP 192.168.1.200, intercepts `*.vtuner.com` DNS) serves it to the receiver under
+**Internet Radio → My Stations → Julien**. No on-device keyboard involved.
+
+- Flow: type keyword → `GET /api/radio/search` → radio-browser.info → tap Add →
+  `POST /api/radio/add` → append to `stations.ini` → yTuner auto-reloads
+  (`MyStationsAutoRefreshPeriod=1`) → appears on receiver within ~1 min.
+- Config (env): `YTUNER_STATIONS_FILE` (default local `stations.local.ini`),
+  `YTUNER_STATIONS_CATEGORY` (default `Julien`), `RADIO_BROWSER_BASE`.
+- Tests: `npm test` (node:test unit + integration), `npm run test:e2e` (Playwright browser
+  E2E; `playwright` is a devDependency, excluded from the image by `npm ci --production`).
+
 ## Key Files
 
-- `server.js` — Express server: WebSocket hub, telnet lifecycle, HTTP command proxy, HTTP polling
-- `public/index.html` — Single-page frontend: all UI, WebSocket client, visibility tracking
+- `server.js` — Express server: WebSocket hub, telnet lifecycle, HTTP command proxy, HTTP polling; mounts `/api/radio`
+- `public/index.html` — Single-page frontend: all UI, WebSocket client, visibility tracking, Internet Radio Search section
 - `lib/DenonClient.js` — Telnet wrapper (TCP port 23). `connect()` returns a Promise that only resolves on success, never rejects — connection errors go to the `error` event handler
+- `lib/stations.js` — pure yTuner `stations.ini` parse/serialize/add/remove + atomic, mutex-guarded file I/O
+- `lib/radiobrowser.js` — radio-browser.info search + result mapping
+- `lib/radioRoutes.js` — injectable REST router: `GET /search`, `POST /add`, `GET /mystations`, `DELETE /remove`
 
 ## Denon HTTP API
 
@@ -63,9 +84,10 @@ Denon uses 0–60 range internally. HTTP API returns dB scale. Conversion: `deno
 Deployed on Synology NAS via `misc.yml` Docker stack, accessible at `denon.ju.fr`.
 
 ```bash
-# Copy updated files to NAS
-scp -O server.js julien@nas.local:/volume2/docker/denon-remote/server.js
+# Copy updated files to NAS (include lib/*.js when they change)
+scp -O server.js package.json package-lock.json julien@nas.local:/volume2/docker/denon-remote/
 scp -O public/index.html julien@nas.local:/volume2/docker/denon-remote/public/index.html
+scp -O lib/stations.js lib/radiobrowser.js lib/radioRoutes.js julien@nas.local:/volume2/docker/denon-remote/lib/
 # Rebuild and restart
 ssh julien@nas.local "docker compose -f /volume2/docker/misc.yml build denon-remote && docker compose -f /volume2/docker/misc.yml up -d denon-remote"
 ```
@@ -76,13 +98,21 @@ ssh julien@nas.local "docker compose -f /volume2/docker/misc.yml build denon-rem
 denon-remote:
   build: /volume2/docker/denon-remote
   container_name: denon-remote
+  user: "1026:100"            # julien:users — see gotcha below
   restart: unless-stopped
   ports:
     - "3002:3000"
+  volumes:
+    - /volume2/docker/ytuner/config:/ytuner-config   # write yTuner MyStations
   environment:
     - PORT=3000
     - DENON_HOST=192.168.1.11
+    - YTUNER_STATIONS_FILE=/ytuner-config/stations.ini
+    - YTUNER_STATIONS_CATEGORY=Julien
 ```
+
+yTuner side: `/volume2/docker/ytuner/ytuner.ini` must have `MyStationsAutoRefreshPeriod=1`
+so it reloads `stations.ini` (restart the `ytuner` container after changing the ini).
 
 ### DNS & Reverse Proxy
 
@@ -103,3 +133,5 @@ DENON_HOST=192.168.1.11 PORT=3003 node server.js
 - **DenonClient.connect()** never rejects on failure — errors go to the `error` event. The `.catch()` after connect is dead code for connection failures.
 - After sending an HTTP command, an immediate poll fires 300ms later so the UI reflects changes quickly.
 - `Network Control` must be set to `Always On` on the receiver for telnet/HTTP to work.
+- **Writing yTuner's `stations.ini` needs `user: "1026:100"`** in `misc.yml`. The image runs as non-root `appuser` (uid 100), but a **Synology ACL** on `/volume2/docker/ytuner/config` overrides the 777 POSIX bits and only grants the file owner (uid 1026 = `julien`) write. Symptom without it: `EACCES ... stations.ini.tmp` on add/remove. Probe with `docker exec -u <uid>:<gid> denon-remote touch /ytuner-config/.probe`.
+- The design spec lives at `docs/superpowers/specs/2026-07-05-ytuner-radio-search-design.md` (includes why direct text entry / HEOS are impossible on this unit).
