@@ -384,6 +384,13 @@
     background: var(--accent);
   }
 
+  .playback-row button svg {
+    width: 1.1em;
+    height: 1.1em;
+    fill: currentColor;
+    display: block;
+  }
+
   .playback-extra {
     display: flex;
     justify-content: center;
@@ -399,6 +406,7 @@
   /* Tone */
   .tone-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 12px;
     align-items: center;
   }
@@ -789,11 +797,11 @@
     <div class="section">
       <div class="section-title">Playback</div>
       <div class="playback-row">
-        <button onclick="api('/api/playback/prev')">&#x23EE;</button>
-        <button onclick="api('/api/playback/stop')">&#x23F9;</button>
-        <button class="play-btn" onclick="api('/api/playback/play')">&#x23F5;</button>
-        <button onclick="api('/api/playback/pause')">&#x23F8;</button>
-        <button onclick="api('/api/playback/next')">&#x23ED;</button>
+        <button onclick="api('/api/playback/prev')" aria-label="Previous"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2v12H6zM20 18V6l-9 6z"/></svg></button>
+        <button onclick="api('/api/playback/stop')" aria-label="Stop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg></button>
+        <button class="play-btn" onclick="api('/api/playback/play')" aria-label="Play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
+        <button onclick="api('/api/playback/pause')" aria-label="Pause"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></button>
+        <button onclick="api('/api/playback/next')" aria-label="Next"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 6h2v12h-2zM4 18l9-6-9-6z"/></svg></button>
       </div>
       <div class="playback-extra">
         <button onclick="api('/api/playback/repeat')">Repeat</button>
@@ -817,10 +825,10 @@
           <button onclick="api('/api/tone/treble/down')">&#x2212;</button>
           <button onclick="api('/api/tone/treble/up')">&#x2B;</button>
         </div>
-        <button id="sdb-btn" onclick="toggleSdb()" style="margin-top:8px">SDB Tone</button>
+        <button id="sdb-btn" onclick="toggleSdb()">SDB Tone</button>
         <span id="sdb-explicit" style="display:none">
-          <button onclick="api('/api/command',{cmd:'PSSDB ON'})" style="margin-top:8px">SDB On</button>
-          <button onclick="api('/api/command',{cmd:'PSSDB OFF'})" style="margin-top:8px">SDB Off</button>
+          <button onclick="api('/api/command',{cmd:'PSSDB ON'})">SDB On</button>
+          <button onclick="api('/api/command',{cmd:'PSSDB OFF'})">SDB Off</button>
         </span>
       </div>
     </div>
