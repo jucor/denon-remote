@@ -119,7 +119,7 @@ Add to the `denon-remote` service:
       - /volume2/docker/ytuner/config:/ytuner-config
     environment:
       - YTUNER_STATIONS_FILE=/ytuner-config/stations.ini
-      - YTUNER_STATIONS_CATEGORY=Added via Remote
+      - YTUNER_STATIONS_CATEGORY=Julien
       - RADIO_BROWSER_BASE=https://all.api.radio-browser.info
 ```
 One-time yTuner change: set `MyStationsAutoRefreshPeriod=1` in
@@ -127,7 +127,7 @@ One-time yTuner change: set `MyStationsAutoRefreshPeriod=1` in
 
 **Config (env vars, with defaults so local dev works):**
 - `YTUNER_STATIONS_FILE` — path to stations.ini (local dev: a temp file).
-- `YTUNER_STATIONS_CATEGORY` — default `Added via Remote` (ASCII, OLED-safe).
+- `YTUNER_STATIONS_CATEGORY` — default `Julien` (ASCII, OLED-safe).
 - `RADIO_BROWSER_BASE` — default `https://all.api.radio-browser.info`.
 
 ## Error handling

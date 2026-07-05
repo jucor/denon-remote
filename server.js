@@ -4,6 +4,8 @@ const { WebSocketServer } = require('ws');
 const path = require('path');
 const DenonClient = require('./lib/DenonClient');
 const { discover } = require('./lib/discovery');
+const { createRadioRouter } = require('./lib/radioRoutes');
+const { searchStations } = require('./lib/radiobrowser');
 
 const app = express();
 const server = http.createServer(app);
@@ -36,6 +38,20 @@ function sendHttpCommand(cmd) {
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// --- Internet Radio search + yTuner MyStations ---
+const stationsFile =
+  process.env.YTUNER_STATIONS_FILE || path.join(__dirname, 'stations.local.ini');
+const stationsCategory = process.env.YTUNER_STATIONS_CATEGORY || 'Julien';
+const radioBrowserBase = process.env.RADIO_BROWSER_BASE || undefined;
+app.use(
+  '/api/radio',
+  createRadioRouter({
+    stationsFile,
+    category: stationsCategory,
+    search: (q) => searchStations(q, { base: radioBrowserBase }),
+  })
+);
 
 // --- Denon Client Management ---
 

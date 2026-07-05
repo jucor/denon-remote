@@ -1,2 +1,4 @@
 node_modules
 .idea
+stations.local.ini
+*.tmp

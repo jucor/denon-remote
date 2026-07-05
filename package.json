@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "cli": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test",
+    "test:e2e": "node --test test/e2e/radio.e2e.js"
   },
   "bin": {
     "denon": "index.js"
@@ -24,5 +25,8 @@
   "dependencies": {
     "express": "^4.21.0",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
   }
 }

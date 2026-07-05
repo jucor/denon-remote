@@ -327,6 +327,65 @@
     flex-shrink: 0;
   }
 
+  /* Internet Radio Search */
+  .radio-searchbar { display: flex; gap: 8px; }
+  .radio-searchbar input {
+    flex: 1;
+    min-width: 0;
+    background: var(--surface2);
+    border: none;
+    border-radius: 8px;
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  .radio-searchbar input::placeholder { color: var(--text-dim); }
+  .radio-searchbar button { flex-shrink: 0; }
+  .radio-status { font-size: 12px; color: var(--text-dim); min-height: 15px; margin: 8px 2px; }
+  .radio-status.error { color: var(--accent); }
+  .radio-list { display: flex; flex-direction: column; gap: 6px; }
+  .radio-result, .radio-mine {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .radio-fav {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: var(--surface);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+  }
+  .radio-meta { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .radio-name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .radio-sub { font-size: 11px; color: var(--text-dim); }
+  .radio-add { flex-shrink: 0; font-size: 12px; padding: 6px 12px; background: var(--success); color: #111; }
+  .radio-add:disabled { opacity: 0.7; }
+  .radio-remove {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    padding: 0;
+    font-size: 18px;
+    background: var(--surface);
+  }
+  .radio-mine-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    margin: 14px 0 8px;
+  }
+
   /* Receiver Display */
   .display-lines {
     font-family: 'SF Mono', 'Menlo', monospace;
@@ -799,6 +858,21 @@
     </div>
   </div>
 
+  <!-- Internet Radio Search -->
+  <div class="section" id="radio-section">
+    <div class="section-title">Internet Radio Search</div>
+    <div class="radio-searchbar">
+      <input id="radio-q" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Search stations — e.g. FIP, jazz, BBC…"
+             onkeydown="if(event.key==='Enter')radioSearch()">
+      <button id="radio-search-btn" onclick="radioSearch()">Search</button>
+    </div>
+    <div id="radio-status" class="radio-status"></div>
+    <div id="radio-results" class="radio-list"></div>
+    <div id="radio-mine-title" class="radio-mine-title" style="display:none">On the receiver · My Stations</div>
+    <div id="radio-mystations" class="radio-list"></div>
+  </div>
+
   <!-- Group: Playback + Display -->
   <div class="cell-group">
     <div class="section">
@@ -938,6 +1012,122 @@ function toggleSdb() {
 
 function setSleep(min) {
   api('/api/sleep/' + min);
+}
+
+// --- Internet Radio Search (via yTuner MyStations) ---
+function radioSetStatus(msg, isError) {
+  const el = document.getElementById('radio-status');
+  el.textContent = msg || '';
+  el.className = 'radio-status' + (isError ? ' error' : '');
+}
+
+function stationSub(s) {
+  return [s.country, s.codec, s.bitrate ? s.bitrate + 'k' : '']
+    .filter(Boolean).join(' · ');
+}
+
+async function radioJson(res) {
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || ('HTTP ' + res.status));
+  }
+  return res.json();
+}
+
+async function radioSearch() {
+  const q = document.getElementById('radio-q').value.trim();
+  if (!q) return;
+  document.getElementById('radio-results').innerHTML = '';
+  radioSetStatus('Searching…');
+  try {
+    const { stations } = await radioJson(await fetch('/api/radio/search?q=' + encodeURIComponent(q)));
+    renderRadioResults(stations);
+    radioSetStatus(stations.length ? '' : 'No stations found');
+  } catch (e) {
+    radioSetStatus('Search failed: ' + e.message, true);
+  }
+}
+
+function radioRow(cls, s, subText, btnHtml) {
+  const row = document.createElement('div');
+  row.className = cls;
+  const fav = s.favicon
+    ? '<img class="radio-fav" src="' + encodeURI(s.favicon) + '" onerror="this.replaceWith(radioFavPh())">'
+    : '<span class="radio-fav">📻</span>';
+  row.innerHTML = fav +
+    '<div class="radio-meta"><span class="radio-name"></span><span class="radio-sub"></span></div>' +
+    btnHtml;
+  row.querySelector('.radio-name').textContent = s.name;
+  row.querySelector('.radio-sub').textContent = subText;
+  return row;
+}
+
+function radioFavPh() {
+  const span = document.createElement('span');
+  span.className = 'radio-fav';
+  span.textContent = '📻';
+  return span;
+}
+
+function renderRadioResults(stations) {
+  const el = document.getElementById('radio-results');
+  el.innerHTML = '';
+  for (const s of stations) {
+    const row = radioRow('radio-result', s, stationSub(s), '<button class="radio-add">+ Add</button>');
+    row.querySelector('.radio-add').onclick = (ev) => radioAdd(s, ev.currentTarget);
+    el.appendChild(row);
+  }
+}
+
+async function radioAdd(s, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const { stations } = await radioJson(await fetch('/api/radio/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: s.name, url: s.url, logo: s.favicon || '' })
+    }));
+    renderRadioMine(stations);
+    radioSetStatus('Added “' + s.name + '” — appears on the receiver’s My Stations within ~1 min');
+    if (btn) btn.textContent = '✓ Added';
+  } catch (e) {
+    radioSetStatus('Could not add: ' + e.message, true);
+    if (btn) { btn.disabled = false; btn.textContent = '+ Add'; }
+  }
+}
+
+function renderRadioMine(stations) {
+  const list = stations || [];
+  const el = document.getElementById('radio-mystations');
+  document.getElementById('radio-mine-title').style.display = list.length ? '' : 'none';
+  el.innerHTML = '';
+  for (const s of list) {
+    const row = radioRow('radio-mine', s, s.category || '', '<button class="radio-remove" title="Remove">×</button>');
+    row.querySelector('.radio-remove').onclick = (ev) => radioRemove(s, ev.currentTarget);
+    el.appendChild(row);
+  }
+}
+
+async function radioRemove(s, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const { stations } = await radioJson(await fetch('/api/radio/remove', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: s.name, url: s.url })
+    }));
+    renderRadioMine(stations);
+  } catch (e) {
+    radioSetStatus('Could not remove: ' + e.message, true);
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function radioLoadMine() {
+  try {
+    const { stations } = await radioJson(await fetch('/api/radio/mystations'));
+    renderRadioMine(stations);
+  } catch (e) { /* ignore on initial load */ }
 }
 
 
@@ -1508,6 +1698,7 @@ document.addEventListener('visibilitychange', sendVisibility);
 
 // --- Init ---
 connectWs();
+radioLoadMine();
 </script>
 </body>
 </html>
