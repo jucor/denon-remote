@@ -20,13 +20,16 @@ function sendHttpCommand(cmd) {
   if (!denonHost) return false;
   const url = `http://${denonHost}/goform/formiPhoneAppDirect.xml?${encodeURIComponent(cmd)}`;
   broadcast({ type: 'raw', value: '> ' + cmd + ' (HTTP)' });
-  http.get(url, (res) => {
+  const req = http.get(url, (res) => {
     res.resume(); // drain response
     // Poll immediately after command so UI reflects the change
     if (httpPollTimer) setTimeout(pollHttpStatus, 300);
   }).on('error', (err) => {
     console.error('HTTP command error:', err.message);
     broadcast({ type: 'raw', value: '! HTTP error: ' + err.message });
+  });
+  req.setTimeout(5000, () => {
+    req.destroy(new Error('timeout'));
   });
   return true;
 }
@@ -56,6 +59,7 @@ function parseResponse(data) {
 
     if (line.startsWith('PW')) {
       state.power = line.substring(2);
+      console.log('Power state:', JSON.stringify(state.power));
       events.push({ type: 'power', value: state.power });
     } else if (line.startsWith('MV') && !line.startsWith('MVMAX')) {
       state.volume = line.substring(2);
@@ -308,16 +312,14 @@ function parseHttpStatus(xml) {
 }
 
 function sendCommand(cmd) {
-  // Query commands (ending with ?) go via telnet if connected, so we get the response on the event stream
-  // All other commands go via HTTP (fire-and-forget, no connection limit)
-  if (cmd.endsWith('?') || cmd === 'NSE') {
-    if (denon && connected) {
-      denon.command(cmd);
-      return true;
-    }
-    // Fallback: send via HTTP even for queries (won't get response but at least it executes)
-    return sendHttpCommand(cmd);
+  // When telnet is connected, use it for all commands — single path, immediate
+  // feedback if the receiver hangs, no HTTP request pile-up
+  if (denon && connected) {
+    broadcast({ type: 'raw', value: '> ' + cmd });
+    denon.command(cmd);
+    return true;
   }
+  // Fallback: HTTP when telnet is unavailable
   return sendHttpCommand(cmd);
 }
 

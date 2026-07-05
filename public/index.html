@@ -744,8 +744,8 @@
         <span class="boot-msg" id="power-boot-msg"></span>
       </div>
       <div class="power-toggle" id="power-toggle-unknown" style="display:none">
-        <button class="on-btn" onclick="powerOn()" style="padding:10px 20px">Power ON</button>
-        <button class="off-btn" onclick="powerOff()" style="padding:10px 20px">Standby</button>
+        <button class="on-btn" onclick="api('/api/power/on')" style="padding:10px 20px">Power ON</button>
+        <button class="off-btn" onclick="api('/api/power/off')" style="padding:10px 20px">Standby</button>
       </div>
     </div>
     <div class="section">
@@ -1207,125 +1207,24 @@ function setHttpOnly(val) {
 }
 
 let powerState = null;
-let powerTransition = null; // null | 'booting' | 'shuttingDown'
-let powerTransitionStart = 0;
-let pendingPowerUpdate = null;
-let powerTransitionTimer = null;
-const MIN_POWER_TRANSITION_MS = 4000;
-const MAX_POWER_TRANSITION_MS = 15000;
-let powerSettleUntil = 0; // ignore contradictory states until this timestamp
-let powerSettleTarget = null; // 'ON' or 'STANDBY' — expected state after transition
-
-function powerOn() {
-  startPowerTransition('booting');
-  api('/api/power/on');
-}
-
-function powerOff() {
-  startPowerTransition('shuttingDown');
-  api('/api/power/off');
-}
+let powerDebounceUntil = 0; // prevent double-clicks
+const POWER_DEBOUNCE_MS = 2000;
 
 function togglePower() {
-  if (powerState === null || powerTransition) return;
+  if (powerState === null) return;
+  if (Date.now() < powerDebounceUntil) return;
+  powerDebounceUntil = Date.now() + POWER_DEBOUNCE_MS;
   if (powerState === 'STANDBY') {
-    powerOn();
+    api('/api/power/on');
   } else {
-    powerOff();
+    api('/api/power/off');
   }
-}
-
-function startPowerTransition(type) {
-  powerTransition = type;
-  powerTransitionStart = Date.now();
-  pendingPowerUpdate = null;
-  powerSettleUntil = 0; // clear any previous settle
-  powerSettleTarget = null;
-
-  // Show the toggle (not explicit buttons) during transition
-  document.getElementById('power-toggle-known').style.display = '';
-  document.getElementById('power-toggle-unknown').style.display = 'none';
-
-  const track = document.getElementById('power-track');
-  const spinner = document.getElementById('power-spinner');
-  const bootMsg = document.getElementById('power-boot-msg');
-
-  track.classList.remove('on', 'booting', 'shutting-down');
-
-  if (type === 'booting') {
-    track.classList.add('booting');
-    bootMsg.textContent = 'Starting up\u2026';
-    document.getElementById('np-info').textContent = 'Starting up\u2026';
-  } else {
-    track.classList.add('shutting-down');
-    bootMsg.textContent = 'Shutting down\u2026';
-    document.getElementById('np-info').textContent = 'Shutting down\u2026';
-  }
-
-  document.getElementById('power-label-on').classList.add('dim');
-  document.getElementById('power-label-off').classList.add('dim');
-  spinner.classList.add('show');
-  bootMsg.classList.add('show');
-
-  // Safety timeout — force-finish if the receiver never confirms
-  if (powerTransitionTimer) clearTimeout(powerTransitionTimer);
-  powerTransitionTimer = setTimeout(() => {
-    if (powerTransition) {
-      finishPowerTransition(pendingPowerUpdate || powerState);
-    }
-  }, MAX_POWER_TRANSITION_MS);
-}
-
-function finishPowerTransition(val) {
-  // Settle period: ignore contradictory power states for 8s after transition
-  // (the Denon HTTP API flickers during boot/shutdown)
-  powerSettleTarget = powerTransition === 'booting' ? 'ON' : 'STANDBY';
-  powerSettleUntil = Date.now() + 8000;
-  powerTransition = null;
-  pendingPowerUpdate = null;
-  if (powerTransitionTimer) {
-    clearTimeout(powerTransitionTimer);
-    powerTransitionTimer = null;
-  }
-  applyPowerState(val);
 }
 
 function updatePower(val) {
-  // During settling period, ignore states that contradict the transition target
-  // (Denon HTTP API flickers between ON/STANDBY during boot)
-  if (Date.now() < powerSettleUntil) {
-    const contradicts = (powerSettleTarget === 'ON' && val === 'STANDBY') ||
-                        (powerSettleTarget === 'STANDBY' && val !== 'STANDBY');
-    if (contradicts) return;
-  }
-
-  if (powerTransition) {
-    pendingPowerUpdate = val;
-    const isTarget = (powerTransition === 'booting' && val !== 'STANDBY') ||
-                     (powerTransition === 'shuttingDown' && val === 'STANDBY');
-    if (isTarget) {
-      const elapsed = Date.now() - powerTransitionStart;
-      if (elapsed >= MIN_POWER_TRANSITION_MS) {
-        finishPowerTransition(val);
-      } else {
-        // Target confirmed but too soon — wait for minimum transition time
-        if (powerTransitionTimer) clearTimeout(powerTransitionTimer);
-        powerTransitionTimer = setTimeout(() => {
-          if (pendingPowerUpdate !== null) {
-            finishPowerTransition(pendingPowerUpdate);
-          }
-        }, MIN_POWER_TRANSITION_MS - elapsed);
-      }
-    }
-    return;
-  }
-
-  applyPowerState(val);
-}
-
-function applyPowerState(val) {
+  // Trust telnet — it's authoritative. Apply immediately.
+  log('updatePower: ' + JSON.stringify(val));
   powerState = val;
-  // State arrived (from telnet or HTTP poll) — restore normal UI
   if (val && httpOnly) setHttpOnly(false);
   if (!val) return;
   const track = document.getElementById('power-track');
@@ -1344,7 +1243,6 @@ function applyPowerState(val) {
     document.getElementById('np-source').textContent = 'Standby';
     document.getElementById('np-info').textContent = 'Power is off';
   } else {
-    // Clear stale standby/transition messages
     const info = document.getElementById('np-info');
     if (info.textContent === 'Power is off' ||
         info.textContent === 'Starting up\u2026' ||
@@ -1491,7 +1389,9 @@ function getCursorLine() {
   return -1;
 }
 
+let navInProgress = false;
 function navToLine(targetIdx) {
+  if (navInProgress) return; // prevent command flooding
   let cursorIdx = getCursorLine();
   if (cursorIdx < 0) {
     // Fallback: assume cursor is on first selectable line
@@ -1500,6 +1400,7 @@ function navToLine(targetIdx) {
     }
     if (cursorIdx < 0) return;
   }
+  navInProgress = true;
   const delta = targetIdx - cursorIdx;
   const dir = delta > 0 ? 'down' : 'up';
   const steps = Math.abs(delta);
@@ -1507,7 +1408,10 @@ function navToLine(targetIdx) {
   for (let i = 0; i < steps; i++) {
     setTimeout(() => api('/api/nav/' + dir), i * 150);
   }
-  setTimeout(() => api('/api/nav/enter'), steps * 150 + 100);
+  const enterDelay = steps * 150 + 100;
+  setTimeout(() => api('/api/nav/enter'), enterDelay);
+  // Unlock after sequence completes + buffer for receiver to respond
+  setTimeout(() => { navInProgress = false; }, enterDelay + 500);
 }
 
 function updateReceiverDisplay() {
