@@ -85,6 +85,11 @@
       grid-column: 1 / -1;
     }
 
+    /* Radio search spans full width at the bottom (it grows tall with results) */
+    .container > #radio-section {
+      grid-column: 1 / -1;
+    }
+
     .section {
       margin-bottom: 0;
       display: flex;
@@ -341,6 +346,32 @@
   }
   .radio-searchbar input::placeholder { color: var(--text-dim); }
   .radio-searchbar button { flex-shrink: 0; }
+  .radio-actions { display: flex; gap: 16px; margin-top: 8px; }
+  .radio-linkbtn {
+    background: none;
+    color: var(--text-dim);
+    font-size: 12px;
+    padding: 4px 2px;
+  }
+  .radio-linkbtn:active { background: none; color: var(--text); }
+  .radio-help {
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text-dim);
+  }
+  .radio-help b { color: var(--text); }
+  .radio-help code {
+    background: var(--bg);
+    color: var(--text);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  .radio-help-note { margin-top: 6px; font-style: italic; }
   .radio-status { font-size: 12px; color: var(--text-dim); min-height: 15px; margin: 8px 2px; }
   .radio-status.error { color: var(--accent); }
   .radio-list { display: flex; flex-direction: column; gap: 6px; }
@@ -858,21 +889,6 @@
     </div>
   </div>
 
-  <!-- Internet Radio Search -->
-  <div class="section" id="radio-section">
-    <div class="section-title">Internet Radio Search</div>
-    <div class="radio-searchbar">
-      <input id="radio-q" type="text" autocomplete="off" spellcheck="false"
-             placeholder="Search stations — e.g. FIP, jazz, BBC…"
-             onkeydown="if(event.key==='Enter')radioSearch()">
-      <button id="radio-search-btn" onclick="radioSearch()">Search</button>
-    </div>
-    <div id="radio-status" class="radio-status"></div>
-    <div id="radio-results" class="radio-list"></div>
-    <div id="radio-mine-title" class="radio-mine-title" style="display:none">On the receiver · My Stations</div>
-    <div id="radio-mystations" class="radio-list"></div>
-  </div>
-
   <!-- Group: Playback + Display -->
   <div class="cell-group">
     <div class="section">
@@ -975,6 +991,34 @@
     <div id="log"></div>
   </div>
 
+  <!-- Internet Radio Search — kept last: results expand this section downward -->
+  <div class="section" id="radio-section">
+    <div class="section-title">Internet Radio Search</div>
+    <div class="radio-searchbar">
+      <input id="radio-q" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Search stations — e.g. fip, tag:jazz, cc:fr…"
+             onkeydown="if(event.key==='Enter')radioSearch()">
+      <button id="radio-search-btn" onclick="radioSearch()">Search</button>
+    </div>
+    <div class="radio-actions">
+      <button id="radio-reset-btn" class="radio-linkbtn" onclick="radioReset()">Clear</button>
+      <button id="radio-help-btn" class="radio-linkbtn" onclick="radioToggleHelp()">Search syntax ▾</button>
+    </div>
+    <div id="radio-help" class="radio-help" style="display:none">
+      <div><b>By name</b> (default) — <code>fip</code>, <code>jazz radio</code></div>
+      <div><b>tag:</b> genre/tag — <code>tag:jazz</code>, <code>tag:news</code></div>
+      <div><b>country:</b> country name — <code>country:France</code></div>
+      <div><b>cc:</b> 2-letter country code — <code>cc:fr</code>, <code>cc:gb</code></div>
+      <div><b>lang:</b> language — <code>lang:french</code></div>
+      <div><b>codec:</b> codec — <code>codec:mp3</code>, <code>codec:aac</code></div>
+      <div class="radio-help-note">Combine them, e.g. <code>jazz cc:fr</code>. Prefix values are single words.</div>
+    </div>
+    <div id="radio-status" class="radio-status"></div>
+    <div id="radio-results" class="radio-list"></div>
+    <div id="radio-mine-title" class="radio-mine-title" style="display:none">On the receiver · My Stations</div>
+    <div id="radio-mystations" class="radio-list"></div>
+  </div>
+
 </div>
 
 <footer>Denon CEOL N7 Web Remote</footer>
@@ -1019,6 +1063,21 @@ function radioSetStatus(msg, isError) {
   const el = document.getElementById('radio-status');
   el.textContent = msg || '';
   el.className = 'radio-status' + (isError ? ' error' : '');
+}
+
+function radioReset() {
+  document.getElementById('radio-q').value = '';
+  document.getElementById('radio-results').innerHTML = '';
+  radioSetStatus('');
+  document.getElementById('radio-q').focus();
+}
+
+function radioToggleHelp() {
+  const help = document.getElementById('radio-help');
+  const btn = document.getElementById('radio-help-btn');
+  const show = help.style.display === 'none';
+  help.style.display = show ? '' : 'none';
+  btn.textContent = show ? 'Search syntax ▴' : 'Search syntax ▾';
 }
 
 function stationSub(s) {

@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { mapStation, mapStations, searchStations } = require('../lib/radiobrowser');
+const { mapStation, mapStations, searchStations, parseSearchQuery } = require('../lib/radiobrowser');
 
 const RAW = {
   stationuuid: 'uuid-1',
@@ -63,6 +63,36 @@ test('searchStations calls the radio-browser search endpoint with encoded params
   assert.equal(u.searchParams.get('hidebroken'), 'true');
   assert.equal(captured.opts.headers['User-Agent'], 'denon-remote/test');
   assert.deepEqual(out.map((s) => s.name), ['FIP Jazz']);
+});
+
+test('parseSearchQuery: plain text becomes a name search', () => {
+  assert.deepEqual(parseSearchQuery('fip jazz'), { name: 'fip jazz' });
+});
+
+test('parseSearchQuery: field prefixes map to radio-browser params', () => {
+  assert.deepEqual(parseSearchQuery('tag:jazz'), { tag: 'jazz' });
+  assert.deepEqual(parseSearchQuery('country:France'), { country: 'France' });
+  assert.deepEqual(parseSearchQuery('cc:fr'), { countrycode: 'fr' });
+  assert.deepEqual(parseSearchQuery('lang:french'), { language: 'french' });
+  assert.deepEqual(parseSearchQuery('codec:mp3'), { codec: 'mp3' });
+});
+
+test('parseSearchQuery: unprefixed words accumulate into name alongside fields', () => {
+  assert.deepEqual(parseSearchQuery('radio nova cc:fr'), { name: 'radio nova', countrycode: 'fr' });
+  assert.deepEqual(parseSearchQuery('name:fip tag:jazz'), { name: 'fip', tag: 'jazz' });
+});
+
+test('parseSearchQuery: an empty/whitespace query yields no fields', () => {
+  assert.deepEqual(parseSearchQuery('   '), {});
+});
+
+test('searchStations sends the parsed field param (tag) instead of name', async () => {
+  let captured;
+  const fetchImpl = async (url) => { captured = url; return { ok: true, json: async () => [] }; };
+  await searchStations('tag:jazz', { base: 'https://rb.example', fetchImpl });
+  const u = new URL(captured);
+  assert.equal(u.searchParams.get('tag'), 'jazz');
+  assert.equal(u.searchParams.get('name'), null);
 });
 
 test('searchStations rejects a blank query', async () => {
