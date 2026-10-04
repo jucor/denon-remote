@@ -10,6 +10,7 @@ const { searchStations, listTags, listCountries } = require('./lib/radiobrowser'
 const { playStation } = require('./lib/radioNavigator');
 const { parseHttpStatus, httpStatusChanges } = require('./lib/httpStatus');
 const { LineSplitter } = require('./lib/lineSplitter');
+const { savedAddress, isSavedStreamUrl } = require('./lib/savedUrls');
 const { createStreamRelay } = require('./lib/streamRelay');
 const upnp = require('./lib/upnpRenderer');
 const { playStreamOnRenderer } = require('./lib/playNow');
@@ -88,19 +89,9 @@ function clearStreamNow() {
 // Geo-blocked stations (seen live: NRJ refuses UK addresses) are fetched through this HTTP
 // proxy — gluetun's on the *arr network, whose VPN exit is abroad: GEO_PROXY=http://gluetun:8888
 const geoProxy = process.env.GEO_PROXY || '';
-const savedPath = (url) => `/api/radio/stream/u?url=${encodeURIComponent(url)}`;
-
-// The saved-station route serves only stream URLs whose relay address is in stations.ini or
-// bookmark.xml (so it is not an open proxy).
-async function isSavedUrl(url) {
-  const needle = savedPath(url);
-  for (const file of [stationsFile, bookmarksFile]) {
-    try {
-      if ((await fs.promises.readFile(file, 'utf8')).includes(needle)) return true;
-    } catch (e) { /* missing file */ }
-  }
-  return false;
-}
+// The saved-station route serves only stream URLs whose relay address is the URL field of
+// an entry in stations.ini or bookmark.xml (so it is not an open proxy).
+const isSavedUrl = (url) => isSavedStreamUrl({ stationsFile, bookmarksFile, relayBase, url });
 
 // Address to save for a new My Stations / Favourites entry: the relay's when the stream
 // refuses us directly but plays through the proxy, so the receiver's own menus work too.
@@ -108,7 +99,7 @@ async function savedAddressFor(url) {
   if (!geoProxy || !relayBase) return url;
   const { viaProxy } = await relay.probe(url);
   if (viaProxy) console.log(`Geo-blocked, saved via the relay: ${url}`);
-  return viaProxy ? `${relayBase}${savedPath(url)}` : url;
+  return viaProxy ? savedAddress(relayBase, url) : url;
 }
 
 const relay = createStreamRelay({
