@@ -15,6 +15,11 @@
 //   - opening a folder can, rarely, never finish loading (seen once live: My Stations stuck
 //     on "empty" with nothing else pressed); only entering iRadio afresh clears it:
 //     `stickOnOpen` = title of a folder whose first opening sticks;
+//   - on the Media Server input (after Play now via UPnP) the receiver still answers SI?
+//     with IRADIO; NSE shows a "Media Server" screen, menu keys move in Media Server's own
+//     menus, and only SIIRADIO brings iRadio back: `mediaServer`;
+//   - an input switch takes a while (`switchMs`); another SI command during it is ignored
+//     (seen live: SICD then SIIRADIO 2.5 s later left the receiver on CD);
 //   - selecting a station shows "Now Playing" (station on line 2), which keeps pushing
 //     refreshes while it plays.
 
@@ -42,8 +47,11 @@ class FakeReceiver {
     stations = ['Big R Radio - 80s Metal FM', 'Exclusively Elvis Presley'],
     input = 'IRADIO', loadMs = 20, path = [], ytunerMenu = true, cursorAt = null,
     nowPlayingRefreshMs = 0, encode = (s) => s, resumeStation = null, dropPushes = [],
-    stickOnOpen = null, favourites = [],
+    stickOnOpen = null, favourites = [], mediaServer = false, switchMs = 0,
   } = {}) {
+    this.switchMs = switchMs;
+    this.switchingUntil = 0;
+    if (mediaServer) input = 'MEDIA';
     this.favourites = favourites;
     this.stickOnOpen = stickOnOpen;
     this.dropPushes = new Set(dropPushes); // indexes of key presses whose screen push is lost
@@ -88,7 +96,7 @@ class FakeReceiver {
     setTimeout(() => { this.loading = false; this._emitCurrent(); }, ms);
   }
   onLine(cb) { this.listeners.add(cb); return () => this.listeners.delete(cb); }
-  getInput() { return this.input; }
+  getInput() { return this.input === 'MEDIA' ? 'IRADIO' : this.input; } // telnet can't tell
   stop() { clearInterval(this.refreshTimer); }
 
   _top() { return this.stack[this.stack.length - 1]; }
@@ -122,23 +130,40 @@ class FakeReceiver {
   }
 
   _handle(cmd) {
-    if (this.stuck && !cmd.startsWith('SI')) return this._emit(this._lines(this.loadingTitle || 'My Stations', [], true));
+    if (cmd.startsWith('SI')) return this._select(cmd.slice(2));
+    if (this.stuck) return this._emit(this._lines(this.loadingTitle || 'My Stations', [], true));
+    if (this.input === 'MEDIA') { // its own menus: Back never reaches iRadio
+      return setTimeout(() => this._emit(['NSE0Media Server', 'NSE1\x0anas', 'NSE2', 'NSE3', 'NSE4', 'NSE5', 'NSE6', 'NSE7', 'NSE8']), 2);
+    }
+    if (this.input !== 'IRADIO') return; // CD or mid-switch: no menu, no display
+    return this._keys(cmd);
+  }
+
+  // SI<input>: with `switchMs`, the change takes time and another SI meanwhile is ignored.
+  _select(next) {
+    if (Date.now() < this.switchingUntil) return;
+    if (!this.switchMs || next === this.input) return this._switchTo(next);
+    this.switchingUntil = Date.now() + this.switchMs;
+    const was = this.input;
+    this.input = 'SWITCHING';
+    setTimeout(() => { this.input = was; this._switchTo(next); }, this.switchMs);
+  }
+
+  _switchTo(next) {
+    if (next === 'IRADIO' && this.input !== 'IRADIO') {
+      // Entering iRadio from another input fetches yTuner's menu again.
+      this.stack = [{ node: topMenu(this.stations, true, this.favourites), cursor: 0, start: 0 }];
+      this.input = next;
+      this.stuck = false;
+      if (this.resumeStation) this._play(this.resumeStation);
+      return this._emitCurrent();
+    }
+    this.input = next;
+  }
+
+  _keys(cmd) {
     const top = this._top();
     const kids = top.node.children || [];
-    if (cmd.startsWith('SI')) {
-      const next = cmd.slice(2);
-      if (next === 'IRADIO' && this.input !== 'IRADIO') {
-        // Entering iRadio from another input fetches yTuner's menu again.
-        this.stack = [{ node: topMenu(this.stations, true, this.favourites), cursor: 0, start: 0 }];
-        this.input = next;
-        this.stuck = false;
-        if (this.resumeStation) this._play(this.resumeStation);
-        return this._emitCurrent();
-      }
-      this.input = next;
-      return;
-    }
-    if (this.input !== 'IRADIO') return;
     switch (cmd) {
       case 'NSE': return this._emitCurrent();
       case 'NS90': if (!kids.length) return; this._move(top, top.cursor - 1, true); return this._emitCurrent();

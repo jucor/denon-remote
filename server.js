@@ -106,6 +106,7 @@ async function playNowOnReceiver({ name, url, codec }) {
     onRegistered: (id) => { streamNowId = id; },
   });
   console.log(`Play now: ${name} as ${mime}`);
+  onMediaServer = true;
   streamNow = { name, title: '' };
   broadcast({ type: 'streamTitle', value: streamNow });
 }
@@ -114,6 +115,7 @@ async function playNowOnReceiver({ name, url, codec }) {
 // screen (NSE lines) only arrives over it, and every step waits for that screen.
 const displayLineListeners = new Set();
 let playAbort = null; // AbortController of the navigation in progress, if any
+let onMediaServer = false; // set by Play now (UPnP switches the receiver to Media Server)
 const BUSY_SELECTING = 'Selecting a station on the receiver — wait a few seconds';
 async function playOnReceiver(station) {
   clearStreamNow(); // a menu station replaces any Play now stream
@@ -127,7 +129,12 @@ async function playOnReceiver(station) {
     await playStation(station, {
       send: (cmd) => sendCommand(cmd, { fromNavigator: true }),
       onLine: (cb) => { displayLineListeners.add(cb); return () => displayLineListeners.delete(cb); },
-      getInput: () => (state.input || '').toUpperCase(),
+      // Telnet says IRADIO even on Media Server, so remember Play now switched there — for
+      // the first look only: later looks must see real changes (e.g. the CD re-entry).
+      getInput: () => {
+        if (onMediaServer) { onMediaServer = false; return 'MEDIASERVER'; }
+        return (state.input || '').toUpperCase();
+      },
     }, { signal: playAbort.signal });
   } finally {
     playAbort = null;

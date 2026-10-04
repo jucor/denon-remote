@@ -179,3 +179,31 @@ test('plays from another top-menu folder given a path (Favourites)', async () =>
   assert.equal(fake.nowPlaying, 'FIP');
   assert.deepEqual(fake.violations, []);
 });
+
+test('from the Media Server input (after Play now), switches to iRadio although telnet says IRADIO', async () => {
+  // Seen live: SI? answers IRADIO on Media Server, so the navigator read the display and
+  // tried to Back out of Media Server's own menus; every My Stations play failed after a
+  // Play now. A "Media Server" screen means: switch to iRadio first.
+  const fake = new FakeReceiver({ mediaServer: true });
+  await play(fake, { name: BIG_R });
+  assert.equal(fake.nowPlaying, BIG_R);
+  assert.ok(fake.sent.includes('SIIRADIO'));
+});
+
+test('told the input is Media Server, it goes straight to SIIRADIO without waiting on the display', async () => {
+  const fake = new FakeReceiver({ mediaServer: true });
+  const io = { send: (c) => fake.send(c), onLine: (cb) => fake.onLine(cb), getInput: () => 'MEDIASERVER' };
+  try {
+    await playStation({ name: ELVIS, category: 'Julien' }, io, OPTS);
+  } finally { fake.stop(); }
+  assert.equal(fake.sent[0], 'SIIRADIO');
+  assert.equal(fake.nowPlaying, ELVIS);
+});
+
+test('re-entering iRadio waits until the switch to CD is confirmed before SIIRADIO (slow switches)', async () => {
+  // Seen live: SICD, then SIIRADIO 2.5 s later was ignored mid-switch; the receiver ended on CD.
+  const fake = new FakeReceiver({ ytunerMenu: false, switchMs: 150 });
+  await play(fake, { name: BIG_R }, { timeoutMs: 1000, scanTimeoutMs: 100, reenterMs: 10 });
+  assert.equal(fake.nowPlaying, BIG_R);
+  assert.equal(fake.input, 'IRADIO');
+});

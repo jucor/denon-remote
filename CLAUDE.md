@@ -78,6 +78,13 @@ at LAN IP 192.168.1.200, intercepts `*.vtuner.com` DNS) serves it to the receive
 - Seen once: a folder (My Stations) opened, yTuner served it, but the receiver stayed on
   `---- empty ----` with nothing else pressed; Back/OK then behaved erratically. The
   navigator recovers by re-entering iRadio (`SICD` → `SIIRADIO`) and starting over, once.
+- **On Media Server (after Play now) telnet still reports `SIIRADIO`** (HTTP says `NET`),
+  and `NSE` shows a `Media Server` screen whose Back stays in Media Server's menus. The server
+  remembers that Play now switched there, and the navigator treats a `Media Server` screen
+  (or no answer) as "enter iRadio first". `SIIRADIO` from Media Server is confirmed after
+  ~4.6 s (seen live), hence the 8 s allowance.
+- Input switches are slow; an `SI` command sent mid-switch is ignored (seen live: `SICD`, then
+  `SIIRADIO` 2.5 s later, left it on CD). The re-entry waits until telnet confirms `CD`.
 - After another input was used (e.g. Media Server via UPnP), iRadio's top menu can come back
   with **only "Recently Played" and "Search by Keyword"** — no yTuner entries — until iRadio
   is entered again from another input (`SICD` then `SIIRADIO` makes it re-fetch from yTuner).
