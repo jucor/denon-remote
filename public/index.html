@@ -410,6 +410,13 @@
     border-left: 3px solid var(--accent);
     font-size: 13px;
   }
+  /* Phones: a search result's buttons go on their own line under the name, so the name
+     keeps the full width (three buttons squeezed it to "F."). */
+  @media (max-width: 600px) {
+    .radio-result { flex-wrap: wrap; row-gap: 8px; }
+    .radio-result .radio-meta { flex-basis: calc(100% - 38px); }
+    .radio-result .radio-meta + button { margin-left: 38px; }
+  }
   .radio-mine { cursor: pointer; }
   .radio-mine:hover { outline: 1px solid var(--accent); }
   .radio-play { flex-shrink: 0; font-size: 12px; padding: 6px 12px; background: var(--accent); color: #fff; font-weight: 600; }

@@ -296,3 +296,29 @@ test('Play now: the now-playing strip shows the station and the current song (br
     await close();
   }
 });
+
+test('phone width: search rows keep the station name readable; buttons never overlap it (browser E2E)', async () => {
+  const { page, close } = await boot({ playNow: async () => {} });
+  try {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.fill('#radio-q', 'jazz');
+    await page.click('#radio-search-btn');
+    await page.waitForSelector('#radio-results .radio-result .radio-playnow');
+    await page.waitForTimeout(300); // let late-added row buttons (Favourite) settle
+    const rows = await page.$$eval('#radio-results .radio-result', (els) => els.map((row) => {
+      const r = row.getBoundingClientRect();
+      const meta = row.querySelector('.radio-meta').getBoundingClientRect();
+      const overlaps = [...row.querySelectorAll('button')].some((b) => {
+        const q = b.getBoundingClientRect();
+        return q.left < meta.right && q.right > meta.left && q.top < meta.bottom && q.bottom > meta.top;
+      });
+      return { metaShare: meta.width / r.width, overlaps };
+    }));
+    for (const row of rows) {
+      assert.ok(row.metaShare > 0.6, `name area too narrow: ${Math.round(row.metaShare * 100)}% of the row`);
+      assert.equal(row.overlaps, false, 'a button overlaps the station name');
+    }
+  } finally {
+    await close();
+  }
+});
