@@ -129,7 +129,7 @@ Denon uses 0–60 range internally. HTTP API returns dB scale. Conversion: `deno
 
 ## Deployment
 
-Deployed on Synology NAS via `misc.yml` Docker stack, accessible at `denon.ju.fr`.
+Deployed on Synology NAS via `misc.yml` Docker stack, accessible at **`https://denon.ju.cornebise.com`** (tailnet, like every other service).
 
 ```bash
 # Copy updated files to NAS (include lib/*.js when they change)
@@ -167,8 +167,18 @@ yTuner side: `/volume2/docker/ytuner/ytuner.ini` must have, under `[MyStations]`
 
 ### DNS & Reverse Proxy
 
-- **DNS**: `denon.ju.fr` CNAME -> `hangar.ju.fr` (Synology DNS Server GUI)
-- **Reverse proxy**: `denon.ju.fr:80` -> `localhost:3002` with WebSocket headers (Synology Control Panel GUI)
+- **`denon.ju.cornebise.com`** (canonical, HTTPS, tailnet-only): the internal BIND wildcard
+  `*.ju.cornebise.com` points at the `ts_photos` tailnet node (100.76.116.109), whose
+  `nginx_photos` sidecar (`/volume2/docker/immich.yml`) terminates TLS with the Let's Encrypt
+  wildcard cert and routes by subdomain via the `map $svc $ju_backend_port` in
+  `/volume2/docker/immich/nginx-photos/ju-cornebise.conf` — row `denon 3002`. WebSockets pass
+  (Upgrade headers set); the page picks `wss://` from `location.protocol`. Verified
+  2026-10-04: HTTPS 200 with a valid cert, live status over `wss://`, no console errors.
+- **`denon.ju.fr`** (legacy, plain HTTP, LAN): CNAME → `hangar.ju.fr` (Synology DNS Server
+  GUI) + DSM reverse proxy `:80` → `localhost:3002` (Control Panel GUI). Kept like the other
+  services' `ju.fr` entries, which the map's ports mirror.
+- The receiver itself never uses either name: Play now's relay URL is `RELAY_BASE`
+  (`http://192.168.1.61:3002`, the NAS LAN address), since the receiver is not on the tailnet.
 
 ## Local Development
 
@@ -184,7 +194,7 @@ DENON_HOST=192.168.1.11 PORT=3003 node server.js
 - **DenonClient.connect()** never rejects on failure — errors go to the `error` event. The `.catch()` after connect is dead code for connection failures.
 - **Tear a client down with `discard()`**, never `removeAllListeners()` + `end()`: a socket
   still connecting emits its connect error later, and with no listener Node kills the
-  process (this took `denon.ju.fr` down with a 502). `server.js` also has an
+  process (this took the remote down with a 502). `server.js` also has an
   `uncaughtException` backstop.
 - After sending an HTTP command, an immediate poll fires 300ms later so the UI reflects changes quickly.
 - `Network Control` must be set to `Always On` on the receiver for telnet/HTTP to work.
