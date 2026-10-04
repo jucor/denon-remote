@@ -164,3 +164,24 @@ test('parseSearchQuery: a backslash-escaped space keeps a multi-word value toget
 test('parseSearchQuery: unescaped queries keep behaving as before', () => {
   assert.deepEqual(parseSearchQuery('tag:smooth jazz'), { tag: 'smooth', name: 'jazz' });
 });
+
+// Seen live: one /countries call failed with "fetch failed" (radio-browser's all.api name
+// rotates between mirrors); the next call worked. One retry hides such blips.
+test('a network failure is retried once (search and lists)', async () => {
+  const rb = require('../lib/radiobrowser');
+  if (rb.clearBrowseCache) rb.clearBrowseCache();
+  for (const [call, body] of [
+    [(f) => rb.listCountries({ fetchImpl: f }), [{ name: 'France', iso_3166_1: 'FR', stationcount: 5 }]],
+    [(f) => rb.searchStations('jazz', { fetchImpl: f }), [{ stationuuid: 'u', name: 'J', url_resolved: 'http://a/b' }]],
+  ]) {
+    let calls = 0;
+    const flaky = async () => {
+      calls++;
+      if (calls === 1) throw new TypeError('fetch failed');
+      return { ok: true, status: 200, json: async () => body };
+    };
+    const out = await call(flaky);
+    assert.equal(calls, 2);
+    assert.equal(out.length, 1);
+  }
+});

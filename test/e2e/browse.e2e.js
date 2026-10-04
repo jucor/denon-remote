@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end: "Browse by genre / country" chips under the radio search bar. Drives the real
+// End-to-end: "Browse by genre / country" dropdowns under the radio search bar. Drives the real
 // frontend against the real radio router; only radio-browser.info (tags, countries, search)
 // is stubbed.
 
@@ -22,7 +22,7 @@ const TAGS = [
   { name: 'jazz', stationcount: 2345 },
   { name: 'smooth jazz', stationcount: 1200 },
   { name: 'pop', stationcount: 1234567 },
-  // Filler so we can check that only the top 40 are shown.
+  // Filler: a long list must still fit in one compact control.
   ...Array.from({ length: 47 }, (_, i) => ({ name: `genre${i + 1}`, stationcount: 100 - i })),
 ];
 
@@ -53,213 +53,79 @@ async function boot({ listTags, listCountries } = {}) {
   return { page, stats, close };
 }
 
-// The panel is open by default (discoverability); open it only if a test closed it.
-async function ensureBrowseOpen(page) {
-  if (await page.getAttribute('#radio-browse-toggle', 'aria-expanded') !== 'true') await page.click('#radio-browse-toggle');
-}
+const optionTexts = (page, sel) => page.$$eval(`${sel} option`, (els) => els.map((e) => e.textContent.trim()));
+const waitLoaded = (page) => page.waitForFunction(() =>
+  document.querySelectorAll('#browse-genre option').length > 1 && document.querySelectorAll('#browse-country option').length > 1);
 
-const chipTexts = (page, panel) =>
-  page.$$eval(`${panel} .browse-chip`, (els) => els.map((e) => e.textContent.trim().replace(/\s+/g, ' ')));
-
-test('browse: open on load — two real tabs, Genres active with chips, without any click', async () => {
-  const { page, stats, close } = await boot();
-  try {
-    assert.equal(await page.isVisible('#radio-browse-toggle'), true);
-    assert.match(await page.textContent('#radio-browse-toggle'), /Browse by genre \/ country/);
-    await page.waitForSelector('#browse-panel-genres .browse-chip');
-    assert.equal(await page.getAttribute('#radio-browse-toggle', 'aria-expanded'), 'true');
-    assert.equal(stats.countries, 0, 'Countries still loads only when its tab is first shown');
-
-    // ARIA structure
-    assert.equal(await page.getAttribute('#radio-browse [role=tablist]', 'aria-label'), 'Browse stations by');
-    const tabs = await page.$$eval('#radio-browse [role=tab]', (els) =>
-      els.map((e) => ({ text: e.textContent.trim(), selected: e.getAttribute('aria-selected'), controls: e.getAttribute('aria-controls') })));
-    assert.deepEqual(tabs.map((t) => t.text), ['Genres', 'Countries']);
-    assert.deepEqual(tabs.map((t) => t.selected), ['true', 'false']);
-    assert.equal(await page.getAttribute('#browse-panel-genres', 'role'), 'tabpanel');
-    assert.equal(await page.getAttribute('#browse-panel-genres', 'aria-labelledby'), 'browse-tab-genres');
-    assert.equal(tabs[0].controls, 'browse-panel-genres');
-
-    // Materialised: visible border on both, and the active one is styled differently.
-    const style = (sel) => page.$eval(sel, (e) => {
-      const c = getComputedStyle(e);
-      return { border: c.borderTopWidth, bg: c.backgroundColor, weight: c.fontWeight };
-    });
-    const active = await style('#browse-tab-genres');
-    const inactive = await style('#browse-tab-countries');
-    assert.notEqual(active.border, '0px');
-    assert.notEqual(inactive.border, '0px');
-    assert.notEqual(active.bg, inactive.bg);
-
-    // Only the active panel is visible.
-    assert.equal(await page.isVisible('#browse-panel-genres'), true);
-    assert.equal(await page.isVisible('#browse-panel-countries'), false);
-    assert.equal(stats.countries, 0, 'countries load lazily too');
-  } finally {
-    await close();
-  }
-});
-
-test('browse: chips show thousands-separated counts and only the top 40 genres', async () => {
+test('browse: two labelled dropdowns on one compact line — no wall of chips (browser E2E)', async () => {
   const { page, close } = await boot();
   try {
-    await ensureBrowseOpen(page);
-    await page.waitForSelector('#browse-panel-genres .browse-chip');
-    const texts = await chipTexts(page, '#browse-panel-genres');
-    assert.equal(texts.length, 40);
-    assert.equal(texts[0], 'jazz · 2,345');
-    assert.equal(texts[1], 'smooth jazz · 1,200');
-    assert.equal(texts[2], 'pop · 1,234,567');
-  } finally {
-    await close();
-  }
+    await page.setViewportSize({ width: 390, height: 900 });
+    await waitLoaded(page);
+    assert.equal(await page.isVisible('#browse-genre'), true);
+    assert.equal(await page.isVisible('#browse-country'), true);
+    assert.equal(await page.textContent('label[for=browse-genre]'), 'Genre');
+    assert.equal(await page.textContent('label[for=browse-country]'), 'Country');
+    assert.equal(await page.$$eval('#radio-browse .browse-chip', (e) => e.length), 0);
+    const height = await page.$eval('#radio-browse', (e) => e.getBoundingClientRect().height);
+    assert.ok(height < 80, `browse block is ${Math.round(height)} px tall`);
+  } finally { await close(); }
 });
 
-test('browse: switching to Countries by click shows flags, counts and updates the active state', async () => {
-  const { page, stats, close } = await boot();
+test('browse: genres by popularity, countries alphabetical with flags, counts with commas, "Any" first (browser E2E)', async () => {
+  const { page, close } = await boot();
   try {
-    await ensureBrowseOpen(page);
-    await page.waitForSelector('#browse-panel-genres .browse-chip');
-    await page.click('#browse-tab-countries');
-    await page.waitForSelector('#browse-panel-countries .browse-chip');
-    assert.equal(await page.getAttribute('#browse-tab-countries', 'aria-selected'), 'true');
-    assert.equal(await page.getAttribute('#browse-tab-genres', 'aria-selected'), 'false');
-    assert.equal(await page.isVisible('#browse-panel-genres'), false);
-    assert.equal(await page.isVisible('#browse-panel-countries'), true);
-    const texts = await chipTexts(page, '#browse-panel-countries');
-    assert.deepEqual(texts, [
-      '🇫🇷 France · 1,500',
+    await waitLoaded(page);
+    const genres = await optionTexts(page, '#browse-genre');
+    assert.deepEqual(genres.slice(0, 4), ['Any genre', 'pop · 1,234,567', 'jazz · 2,345', 'smooth jazz · 1,200']);
+    assert.equal(genres.length, 1 + TAGS.length);
+    assert.deepEqual(await optionTexts(page, '#browse-country'), [
+      'Any country', '🇫🇷 France · 1,500', '🌐 Nowhereland · 3',
       '🇬🇧 The United Kingdom Of Great Britain And Northern Ireland · 3,100',
-      '🌐 Nowhereland · 3',
     ]);
-    // Back to Genres: no second fetch.
-    await page.click('#browse-tab-genres');
-    assert.equal(await page.isVisible('#browse-panel-genres'), true);
-    await page.click('#browse-tab-countries');
-    assert.equal(stats.countries, 1);
-    assert.equal(stats.tags, 1);
-  } finally {
-    await close();
-  }
+  } finally { await close(); }
 });
 
-test('browse: tabs follow the WAI-ARIA keyboard pattern (arrows, Home, End, roving tabindex)', async () => {
+test('browse: picking a genre writes the query and searches; a country combines with it (browser E2E)', async () => {
+  const { page, stats, close } = await boot();
+  try {
+    await waitLoaded(page);
+    await page.selectOption('#browse-genre', { label: 'smooth jazz · 1,200' });
+    await page.waitForFunction(() => document.querySelectorAll('#radio-results .radio-result').length > 0);
+    assert.equal(await page.inputValue('#radio-q'), 'tag:smooth\\ jazz');
+    assert.deepEqual(parseSearchQuery(stats.searches.at(-1)), { tag: 'smooth jazz' });
+
+    await page.selectOption('#browse-country', { label: '🇫🇷 France · 1,500' });
+    await page.waitForFunction(() => /cc:fr/.test(document.getElementById('radio-q').value));
+    assert.equal(await page.inputValue('#radio-q'), 'tag:smooth\\ jazz cc:fr');
+    for (let i = 0; i < 20 && stats.searches.at(-1) !== 'tag:smooth\\ jazz cc:fr'; i++) await page.waitForTimeout(50);
+    assert.deepEqual(parseSearchQuery(stats.searches.at(-1)), { tag: 'smooth jazz', countrycode: 'fr' });
+  } finally { await close(); }
+});
+
+test('browse: words typed in the box are kept; "Any" removes only its own filter (browser E2E)', async () => {
   const { page, close } = await boot();
   try {
-    await ensureBrowseOpen(page);
-    await page.waitForSelector('#browse-panel-genres .browse-chip');
-    await page.focus('#browse-tab-genres');
-    assert.equal(await page.getAttribute('#browse-tab-genres', 'tabindex'), '0');
-    assert.equal(await page.getAttribute('#browse-tab-countries', 'tabindex'), '-1');
-
-    await page.keyboard.press('ArrowRight');
-    await page.waitForSelector('#browse-panel-countries .browse-chip');
-    assert.equal(await page.getAttribute('#browse-tab-countries', 'aria-selected'), 'true');
-    assert.equal(await page.evaluate(() => document.activeElement.id), 'browse-tab-countries');
-    assert.equal(await page.getAttribute('#browse-tab-countries', 'tabindex'), '0');
-
-    await page.keyboard.press('ArrowRight'); // wraps around
-    assert.equal(await page.getAttribute('#browse-tab-genres', 'aria-selected'), 'true');
-    await page.keyboard.press('End');
-    assert.equal(await page.getAttribute('#browse-tab-countries', 'aria-selected'), 'true');
-    await page.keyboard.press('Home');
-    assert.equal(await page.getAttribute('#browse-tab-genres', 'aria-selected'), 'true');
-    await page.keyboard.press('ArrowLeft'); // wraps backwards
-    assert.equal(await page.getAttribute('#browse-tab-countries', 'aria-selected'), 'true');
-  } finally {
-    await close();
-  }
+    await waitLoaded(page);
+    await page.fill('#radio-q', 'fip');
+    await page.selectOption('#browse-genre', { label: 'jazz · 2,345' });
+    await page.waitForFunction(() => document.getElementById('radio-q').value === 'fip tag:jazz');
+    await page.selectOption('#browse-country', { label: '🌐 Nowhereland · 3' });
+    await page.waitForFunction(() => document.getElementById('radio-q').value === 'fip tag:jazz country:Nowhereland');
+    await page.selectOption('#browse-genre', { label: 'Any genre' });
+    await page.waitForFunction(() => document.getElementById('radio-q').value === 'fip country:Nowhereland');
+  } finally { await close(); }
 });
 
-test('browse: clicking a genre chip fills #radio-q with tag:<name> and shows results', async () => {
-  const { page, stats, close } = await boot();
+test('browse: a list that fails to load says so, with a Retry button (browser E2E)', async () => {
+  let fail = true;
+  const { page, close } = await boot({ listTags: async () => { if (fail) throw new Error('radio-browser is down'); return TAGS; } });
   try {
-    await ensureBrowseOpen(page);
-    await page.waitForSelector('#browse-panel-genres .browse-chip');
-    await page.click('#browse-panel-genres .browse-chip:first-child');
-    await page.waitForSelector('#radio-results .radio-result');
-    assert.equal(await page.inputValue('#radio-q'), 'tag:jazz');
-    assert.deepEqual(stats.searches, ['tag:jazz']);
-    const names = await page.$$eval('#radio-results .radio-result .radio-name', (els) => els.map((e) => e.textContent.trim()));
-    assert.deepEqual(names, ['FIP Jazz', 'Radio Nova']);
-    // The clicked chip shows as selected.
-    assert.equal(await page.getAttribute('#browse-panel-genres .browse-chip:first-child', 'aria-pressed'), 'true');
-  } finally {
-    await close();
-  }
-});
-
-test('browse: a multi-word genre stays ONE tag value (space is backslash-escaped for parseSearchQuery)', async () => {
-  const { page, stats, close } = await boot();
-  try {
-    await ensureBrowseOpen(page);
-    await page.waitForSelector('#browse-panel-genres .browse-chip');
-    await page.click('#browse-panel-genres .browse-chip:nth-child(2)');
-    await page.waitForSelector('#radio-results .radio-result');
-    assert.equal(await page.inputValue('#radio-q'), 'tag:smooth\\ jazz');
-    assert.deepEqual(parseSearchQuery(stats.searches[0]), { tag: 'smooth jazz' });
-  } finally {
-    await close();
-  }
-});
-
-test('browse: clicking a country chip fills #radio-q with cc:<code> (or country:<name> without a code)', async () => {
-  const { page, stats, close } = await boot();
-  try {
-    await ensureBrowseOpen(page);
-    await page.click('#browse-tab-countries');
-    await page.waitForSelector('#browse-panel-countries .browse-chip');
-    await page.click('#browse-panel-countries .browse-chip:first-child');
-    await page.waitForSelector('#radio-results .radio-result');
-    assert.equal(await page.inputValue('#radio-q'), 'cc:fr');
-
-    await page.click('#browse-panel-countries .browse-chip:nth-child(3)');
-    await page.waitForFunction(() => document.getElementById('radio-q').value === 'country:Nowhereland');
-    assert.deepEqual(stats.searches, ['cc:fr', 'country:Nowhereland']);
-  } finally {
-    await close();
-  }
-});
-
-test('browse: shows a loading state, then a visible error with a working Retry', async () => {
-  let calls = 0;
-  let release;
-  const gate = new Promise((r) => { release = r; });
-  const { page, close } = await boot({
-    listTags: async () => {
-      calls++;
-      if (calls === 1) { await gate; throw new Error('upstream exploded'); }
-      return TAGS;
-    },
-  });
-  try {
-    await ensureBrowseOpen(page);
-    await page.waitForFunction(() => /Loading/.test(document.getElementById('browse-status').textContent));
-    assert.equal(await page.isVisible('#browse-status'), true);
-    release();
-    await page.waitForFunction(() => /upstream exploded/.test(document.getElementById('browse-status').textContent));
-    assert.equal(await page.getAttribute('#browse-status', 'role'), 'alert');
-    assert.equal(await page.$$eval('#browse-panel-genres .browse-chip', (e) => e.length), 0);
-
-    await page.click('#browse-retry');
-    await page.waitForSelector('#browse-panel-genres .browse-chip');
-    assert.equal(await page.textContent('#browse-status'), '');
-  } finally {
-    await close();
-  }
-});
-
-test('browse: the toggle collapses the panel again without refetching', async () => {
-  const { page, stats, close } = await boot();
-  try {
-    await page.waitForSelector('#browse-panel-genres .browse-chip');
-    await page.click('#radio-browse-toggle'); // collapse
-    assert.equal(await page.getAttribute('#radio-browse-toggle', 'aria-expanded'), 'false');
-    assert.equal(await page.isVisible('#browse-panel-genres'), false);
-    await ensureBrowseOpen(page);
-    assert.equal(await page.isVisible('#browse-panel-genres'), true);
-    assert.equal(stats.tags, 1);
-  } finally {
-    await close();
-  }
+    await page.waitForSelector('#browse-status .browse-retry');
+    assert.match(await page.textContent('#browse-status'), /genres.*radio-browser is down/i);
+    fail = false;
+    await page.click('#browse-status .browse-retry');
+    await page.waitForFunction(() => document.querySelectorAll('#browse-genre option').length > 1);
+    assert.equal(await page.isVisible('#browse-status .browse-retry'), false);
+  } finally { await close(); }
 });
