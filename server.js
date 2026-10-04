@@ -9,6 +9,9 @@ const { searchStations } = require('./lib/radiobrowser');
 const { playStation } = require('./lib/radioNavigator');
 const { parseHttpStatus, httpStatusChanges } = require('./lib/httpStatus');
 const { LineSplitter } = require('./lib/lineSplitter');
+const { createStreamRelay } = require('./lib/streamRelay');
+const upnp = require('./lib/upnpRenderer');
+const { playStreamOnRenderer } = require('./lib/playNow');
 
 // Backstop: a stray socket error must never take the whole remote down (it did: 502).
 process.on('uncaughtException', (err) => {
@@ -59,8 +62,36 @@ app.use(
     category: stationsCategory,
     search: (q) => searchStations(q, { base: radioBrowserBase }),
     play: playOnReceiver,
+    playNow: playNowOnReceiver,
   })
 );
+
+// --- Play now: any stream URL, straight to the receiver's UPnP renderer via our relay ---
+// The receiver fetches RELAY_BASE/api/radio/stream/<id>, so RELAY_BASE must be this
+// server's address as seen from the receiver's LAN (e.g. http://192.168.1.61:3002).
+const relayBase = (process.env.RELAY_BASE || '').replace(/\/$/, '');
+let streamNow = null; // { name, title } of the current Play now stream, for new tabs
+const relay = createStreamRelay({
+  onTitle: ({ name, title }) => {
+    streamNow = { name, title };
+    broadcast({ type: 'streamTitle', value: streamNow });
+  },
+});
+app.get('/api/radio/stream/:id', relay.handler);
+
+async function playNowOnReceiver({ name, url, codec }) {
+  if (!relayBase) {
+    const err = new Error('Play now needs RELAY_BASE (this server\'s LAN URL) in the container environment');
+    err.status = 501;
+    throw err;
+  }
+  if (!denonHost) throw Object.assign(new Error('No Denon host configured'), { status: 503 });
+  const controlUrl = process.env.UPNP_AVTRANSPORT_URL || `http://${denonHost}:8080/AVTransport/ctrl`;
+  const mime = await playStreamOnRenderer({ relay, relayBase, controlUrl, name, url, codec, playUri: upnp.playUri });
+  console.log(`Play now: ${name} as ${mime}`);
+  streamNow = { name, title: '' };
+  broadcast({ type: 'streamTitle', value: streamNow });
+}
 
 // Play a My Stations entry by driving the iRadio menu. Needs telnet: the receiver's
 // screen (NSE lines) only arrives over it, and every step waits for that screen.
@@ -607,6 +638,7 @@ wss.on('connection', ws => {
     telnetDisabled,
   }));
   ws.send(JSON.stringify({ type: 'state', value: state }));
+  if (streamNow) ws.send(JSON.stringify({ type: 'streamTitle', value: streamNow }));
 
   ws.on('message', msg => {
     try {

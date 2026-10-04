@@ -23,10 +23,10 @@ const ROWS = 7;
 function folder(title, children) { return { title, children }; }
 function station(title) { return { title }; }
 
-function topMenu(stations, withYtuner) {
+function topMenu(stations, withYtuner, favourites = []) {
   const ytuner = [
     folder('*** YTuner ***', []),
-    folder('Favourites', []),
+    folder('Favourites', favourites.map(station)),
     folder('My Stations', [folder('Julien', stations.map(station))]),
     folder('Radio Browser', []),
   ];
@@ -42,8 +42,9 @@ class FakeReceiver {
     stations = ['Big R Radio - 80s Metal FM', 'Exclusively Elvis Presley'],
     input = 'IRADIO', loadMs = 20, path = [], ytunerMenu = true, cursorAt = null,
     nowPlayingRefreshMs = 0, encode = (s) => s, resumeStation = null, dropPushes = [],
-    stickOnOpen = null,
+    stickOnOpen = null, favourites = [],
   } = {}) {
+    this.favourites = favourites;
     this.stickOnOpen = stickOnOpen;
     this.dropPushes = new Set(dropPushes); // indexes of key presses whose screen push is lost
     this.resumeStation = resumeStation;
@@ -57,7 +58,7 @@ class FakeReceiver {
     this.nowPlaying = null;
     this.listeners = new Set();
     this.loading = false;
-    this.stack = [{ node: topMenu(stations, ytunerMenu), cursor: 0, start: 0 }];
+    this.stack = [{ node: topMenu(stations, ytunerMenu, favourites), cursor: 0, start: 0 }];
     for (const title of path) this._descend(title);
     if (cursorAt !== null) this._top().cursor = cursorAt;
   }
@@ -128,7 +129,7 @@ class FakeReceiver {
       const next = cmd.slice(2);
       if (next === 'IRADIO' && this.input !== 'IRADIO') {
         // Entering iRadio from another input fetches yTuner's menu again.
-        this.stack = [{ node: topMenu(this.stations, true), cursor: 0, start: 0 }];
+        this.stack = [{ node: topMenu(this.stations, true, this.favourites), cursor: 0, start: 0 }];
         this.input = next;
         this.stuck = false;
         if (this.resumeStation) this._play(this.resumeStation);

@@ -172,3 +172,10 @@ test('recovers once when a folder never finishes loading: re-enters iRadio and s
   assert.ok(i >= 0 && fake.sent[i + 1] === 'SIIRADIO', 'expected SICD then SIIRADIO');
   assert.equal(fake.input, 'IRADIO');
 });
+
+test('plays from another top-menu folder given a path (Favourites)', async () => {
+  const fake = new FakeReceiver({ favourites: ['BOB Hair Metal', 'FIP'] });
+  await play(fake, { name: 'FIP', path: ['Favourites'] });
+  assert.equal(fake.nowPlaying, 'FIP');
+  assert.deepEqual(fake.violations, []);
+});

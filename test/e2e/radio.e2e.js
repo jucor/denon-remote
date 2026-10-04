@@ -20,13 +20,13 @@ const CANNED = [
 ];
 
 // Boot a throwaway app (static frontend + radio router) and a browser page.
-async function boot({ play, stationsText } = {}) {
+async function boot({ play, playNow, stationsText } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'radio-e2e-'));
   const stationsFile = path.join(dir, 'stations.ini');
   if (stationsText) fs.writeFileSync(stationsFile, stationsText);
   const app = express();
   app.use(express.json());
-  app.use('/api/radio', createRadioRouter({ stationsFile, category: 'Julien', search: async (q) => (q ? CANNED : []), play }));
+  app.use('/api/radio', createRadioRouter({ stationsFile, category: 'Julien', search: async (q) => (q ? CANNED : []), play, playNow }));
   app.use(express.static(path.join(__dirname, '..', '..', 'public')));
   const srv = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
   const browser = await chromium.launch();
@@ -247,6 +247,51 @@ test('a11y: keyboard focus stays on the same display row when the screen refresh
     await page.focus('#receiver-display .display-line.selectable:nth-of-type(3)');
     await page.evaluate((lines) => lines.forEach(handleDisplay), screen(2));
     assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), '▶ Elvis');
+  } finally {
+    await close();
+  }
+});
+
+test('Play now: every search result has a visible Play now button that plays it directly (browser E2E)', async () => {
+  const calls = [];
+  const { page, close } = await boot({ playNow: async (s) => { calls.push(s); } });
+  try {
+    await page.fill('#radio-q', 'jazz');
+    await page.click('#radio-search-btn');
+    await page.waitForSelector('#radio-results .radio-result');
+    assert.deepEqual(await page.$$eval('#radio-results .radio-playnow', (els) => els.map((e) => [e.textContent.trim(), e.getAttribute('aria-label')])),
+      [['▶ Play now', 'Play FIP Jazz now'], ['▶ Play now', 'Play Radio Nova now']]);
+    await page.click('#radio-results .radio-result:nth-child(2) .radio-playnow');
+    await page.waitForFunction(() => /^Playing “Radio Nova”/.test(document.getElementById('radio-status').textContent));
+    assert.deepEqual(calls, [{ name: 'Radio Nova', url: 'http://cdn/nova.mp3', codec: 'AAC' }]);
+  } finally {
+    await close();
+  }
+});
+
+test('Play now: a failure is shown in the status line (browser E2E)', async () => {
+  const playNow = async () => { throw Object.assign(new Error('Receiver refused SetAVTransportURI: Illegal MIME-type (714)'), { status: 502 }); };
+  const { page, close } = await boot({ playNow });
+  try {
+    await page.fill('#radio-q', 'jazz');
+    await page.click('#radio-search-btn');
+    await page.waitForSelector('#radio-results .radio-playnow');
+    await page.click('#radio-results .radio-result:first-child .radio-playnow');
+    await page.waitForFunction(() => /714/.test(document.getElementById('radio-status').textContent));
+    assert.match(await page.getAttribute('#radio-status', 'class'), /error/);
+  } finally {
+    await close();
+  }
+});
+
+test('Play now: the now-playing strip shows the station and the current song (browser E2E)', async () => {
+  const { page, close } = await boot();
+  try {
+    assert.equal(await page.isVisible('#radio-now'), false);
+    await page.evaluate(() => handleStreamTitle({ name: 'Radio Paradise', title: '' }));
+    assert.equal((await page.textContent('#radio-now')).trim(), 'Now playing · Radio Paradise');
+    await page.evaluate(() => handleStreamTitle({ name: 'Radio Paradise', title: 'Uche Yara – Bodyscanner' }));
+    assert.equal((await page.textContent('#radio-now')).trim(), 'Now playing · Radio Paradise — Uche Yara – Bodyscanner');
   } finally {
     await close();
   }

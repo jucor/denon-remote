@@ -400,6 +400,16 @@
   .radio-sub { font-size: 11px; color: var(--text-dim); }
   .radio-add { flex-shrink: 0; font-size: 12px; padding: 6px 12px; background: var(--success); color: #111; }
   .radio-add:disabled { opacity: 0.7; }
+  .radio-playnow { flex-shrink: 0; font-size: 12px; padding: 6px 12px; background: var(--accent); color: #fff; font-weight: 600; }
+  .radio-playnow:disabled { opacity: 0.7; }
+  .radio-now {
+    margin: 4px 0 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    font-size: 13px;
+  }
   .radio-mine { cursor: pointer; }
   .radio-mine:hover { outline: 1px solid var(--accent); }
   .radio-play { flex-shrink: 0; font-size: 12px; padding: 6px 12px; background: var(--accent); color: #fff; font-weight: 600; }
@@ -1009,6 +1019,7 @@
   <!-- Internet Radio Search — kept last: results expand this section downward -->
   <div class="section" id="radio-section">
     <div class="section-title">Internet Radio Search</div>
+    <div id="radio-now" class="radio-now" role="status" aria-live="polite" style="display:none"></div>
     <div class="radio-searchbar">
       <input id="radio-q" type="text" autocomplete="off" spellcheck="false"
              placeholder="Search stations — e.g. fip, tag:jazz, cc:fr…"
@@ -1148,10 +1159,44 @@ function renderRadioResults(stations) {
   const el = document.getElementById('radio-results');
   el.innerHTML = '';
   for (const s of stations) {
-    const row = radioRow('radio-result', s, stationSub(s), '<button class="radio-add">+ Add</button>');
+    const row = radioRow('radio-result', s, stationSub(s),
+      '<button class="radio-playnow" title="Play on the receiver now, without adding it">▶ Play now</button>' +
+      '<button class="radio-add" title="Add to the receiver’s My Stations">+ Add</button>');
+    const playNowBtn = row.querySelector('.radio-playnow');
+    playNowBtn.setAttribute('aria-label', 'Play ' + s.name + ' now');
+    playNowBtn.onclick = (ev) => radioPlayNow(s, ev.currentTarget);
     row.querySelector('.radio-add').onclick = (ev) => radioAdd(s, ev.currentTarget);
     el.appendChild(row);
   }
+}
+
+// Play a search result straight away: the server relays the stream to the receiver's
+// UPnP renderer (its "Media Server" input). No telnet or yTuner involved.
+async function radioPlayNow(s, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  radioSetStatus('Starting “' + s.name + '” on the receiver…');
+  try {
+    await radioJson(await fetch('/api/radio/playnow', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: s.name, url: s.url, codec: s.codec || '' })
+    }));
+    radioSetStatus('Playing “' + s.name + '” now — add it to keep it on the receiver');
+  } catch (e) {
+    radioSetStatus('Could not play “' + s.name + '”: ' + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Play now';
+  }
+}
+
+// Station and song of the current Play now stream (song titles come from the stream).
+function handleStreamTitle(v) {
+  const el = document.getElementById('radio-now');
+  if (!v || !v.name) { el.style.display = 'none'; return; }
+  el.textContent = 'Now playing · ' + v.name + (v.title ? ' — ' + v.title : '');
+  el.style.display = '';
 }
 
 async function radioAdd(s, btn) {
@@ -1399,6 +1444,9 @@ function connectWs() {
 
 function handleEvent(msg) {
   switch (msg.type) {
+    case 'streamTitle':
+      handleStreamTitle(msg.value);
+      break;
     case 'connection':
       updateConnection(msg.value, msg.host, msg.httpAvailable, msg.telnetDisabled);
       break;

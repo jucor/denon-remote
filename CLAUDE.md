@@ -134,7 +134,7 @@ Deployed on Synology NAS via `misc.yml` Docker stack, accessible at `denon.ju.fr
 ```bash
 # Copy updated files to NAS (include lib/*.js when they change)
 scp -O server.js package.json package-lock.json julien@nas.local:/volume2/docker/denon-remote/
-scp -O public/index.html julien@nas.local:/volume2/docker/denon-remote/public/index.html
+scp -O public/*.html public/*.js julien@nas.local:/volume2/docker/denon-remote/public/
 scp -O lib/*.js julien@nas.local:/volume2/docker/denon-remote/lib/
 # Rebuild and restart
 ssh julien@nas.local "docker compose -f /volume2/docker/misc.yml build denon-remote && docker compose -f /volume2/docker/misc.yml up -d denon-remote"
@@ -191,14 +191,28 @@ DENON_HOST=192.168.1.11 PORT=3003 node server.js
 - **Writing yTuner's `stations.ini` needs `user: "1026:100"`** in `misc.yml`. The image runs as non-root `appuser` (uid 100), but a **Synology ACL** on `/volume2/docker/ytuner/config` overrides the 777 POSIX bits and only grants the file owner (uid 1026 = `julien`) write. Symptom without it: `EACCES ... stations.ini.tmp` on add/remove. Probe with `docker exec -u <uid>:<gid> denon-remote touch /ytuner-config/.probe`.
 - The design spec lives at `docs/superpowers/specs/2026-07-05-ytuner-radio-search-design.md` (includes why direct text entry / HEOS are impossible on this unit).
 
-## UPnP renderer (port 8080) — tested 2026-10-04, not used by the app yet
+## Play now — UPnP renderer (port 8080) + stream relay
+
+Each search result has **▶ Play now**: `POST /api/radio/playnow {name, url, codec}` →
+`lib/playNow.js` registers the stream with `lib/streamRelay.js` and tells the receiver's
+UPnP renderer (`lib/upnpRenderer.js`) to play `RELAY_BASE/api/radio/stream/<id>`. Plays in
+~3 s on the receiver's "Media Server" input; no telnet, no yTuner, no menu. The relay
+follows redirects and `.pls`/`.m3u` playlists, fetches HTTPS (the receiver can't), strips ICY
+metadata (`lib/icy.js`) and broadcasts song titles (`streamTitle` WebSocket event → the
+"Now playing" strip). Only registered stations are relayed (not an open proxy). HLS is not
+supported. MIME types: MP3 → `audio/mpeg`; AAC → tried in order `audio/vnd.dlna.adts`
+(accepted live), `audio/mp4`, `audio/x-mp4`, `audio/3gpp` — `audio/aac` is refused (714).
+**Needs env `RELAY_BASE`** = this server's URL as seen from the receiver
+(`http://192.168.1.61:3002` on the NAS); without it `/playnow` answers 501.
+Verified live 2026-10-04: MP3 (Elvis), AAC (FIP Jazz), HTTPS (Radio Paradise), titles.
+
+### Renderer details (tested 2026-10-04)
 
 The RCD-N9 is a UPnP **MediaRenderer** (`/description.xml`: AVTransport, RenderingControl,
 ConnectionManager under `/<Service>/ctrl`). `SetAVTransportURI` (with DIDL-Lite metadata
 whose `res protocolInfo="http-get:*:audio/mpeg:*"`) + `Play` plays any HTTP MP3/AAC URL on
 the **Media Server** input — no menu walking. Direct Icecast URLs fail (STOPPED at 0:00): the
 renderer asks for `icy-metadata: 1` as `WinampMPEG/2.8` and can't parse the interleaved
-metadata. Relayed through a proxy that fetches **without** `icy-metadata` (and serves
-`audio/mpeg`, chunked, no fake Content-Length) it plays. A proxy would also cover HTTPS-only
-streams. Side effect: switching back to iRadio afterwards can lose yTuner's menu entries
+metadata. Relayed with the metadata stripped (served chunked, no fake Content-Length)
+it plays. Side effect: switching back to iRadio afterwards can lose yTuner's menu entries
 (see above).

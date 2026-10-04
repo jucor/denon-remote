@@ -223,3 +223,49 @@ test('POST /play rejects a non-string or overlong name/category with 400, before
     await app.close();
   }
 });
+
+test('POST /playnow plays a stream URL directly, and validates its input', async () => {
+  const calls = [];
+  const app = await startApp({ stationsFile: tmpFile(), category: 'Julien', playNow: async (s) => { calls.push(s); } });
+  try {
+    const post = (body) => fetch(`${app.base}/api/radio/playnow`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    assert.equal((await post({ name: 'FIP', url: 'https://icecast.radiofrance.fr/fip-hifi.aac', codec: 'AAC' })).status, 200);
+    assert.deepEqual(calls, [{ name: 'FIP', url: 'https://icecast.radiofrance.fr/fip-hifi.aac', codec: 'AAC' }]);
+    for (const bad of [{ name: 'x' }, { name: 'x', url: 'file:///etc/passwd' }, { url: 'http://a/b' }, { name: {}, url: 'http://a/b' }]) {
+      assert.equal((await post(bad)).status, 400, JSON.stringify(bad));
+    }
+    assert.equal(calls.length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test('POST /playnow returns 501 when not configured, and passes a player error status through', async () => {
+  let app = await startApp({ stationsFile: tmpFile(), category: 'Julien' });
+  try {
+    const r = await fetch(`${app.base}/api/radio/playnow`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'x', url: 'http://a/b' }) });
+    assert.equal(r.status, 501);
+  } finally { await app.close(); }
+  app = await startApp({ stationsFile: tmpFile(), category: 'Julien', playNow: async () => { throw Object.assign(new Error('Illegal MIME-type (714)'), { status: 502 }); } });
+  try {
+    const r = await fetch(`${app.base}/api/radio/playnow`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'x', url: 'http://a/b' }) });
+    assert.equal(r.status, 502);
+    assert.match((await r.json()).error, /MIME/);
+  } finally { await app.close(); }
+});
+
+test('POST /play passes a menu path (e.g. Favourites) through to the player', async () => {
+  const calls = [];
+  const app = await startApp({ stationsFile: tmpFile(), category: 'Julien', play: async (s) => { calls.push(s); } });
+  try {
+    const r = await postPlay(app.base, { name: 'BOB Hair Metal', path: ['Favourites'] });
+    assert.equal(r.status, 200);
+    assert.deepEqual(calls, [{ name: 'BOB Hair Metal', category: 'Julien', path: ['Favourites'] }]);
+    assert.equal((await postPlay(app.base, { name: 'x', path: 'Favourites' })).status, 400);
+    assert.equal((await postPlay(app.base, { name: 'x', path: [5] })).status, 400);
+  } finally {
+    await app.close();
+  }
+});
