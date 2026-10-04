@@ -50,12 +50,15 @@ app.use(express.static(path.join(__dirname, 'public')));
 // --- Internet Radio search + yTuner MyStations ---
 const stationsFile =
   process.env.YTUNER_STATIONS_FILE || path.join(__dirname, 'stations.local.ini');
+// yTuner's bookmark.xml ("Favourites") lives next to stations.ini (CommonBookmark=1).
+const bookmarksFile = path.join(path.dirname(stationsFile), 'bookmark.xml');
 const stationsCategory = process.env.YTUNER_STATIONS_CATEGORY || 'Julien';
 const radioBrowserBase = process.env.RADIO_BROWSER_BASE || undefined;
 app.use(
   '/api/radio',
   createRadioRouter({
     stationsFile,
+    bookmarksFile,
     category: stationsCategory,
     search: (q) => searchStations(q, { base: radioBrowserBase }),
     play: playOnReceiver,
