@@ -10,6 +10,8 @@
 //   - Back (NS92) at the top menu does nothing and pushes nothing;
 //   - after another input was used, the top menu can come back with only the receiver's
 //     own entries (no yTuner items) until iRadio is entered again from another input;
+//   - entering iRadio from another input either shows the top menu (seen from CD) or
+//     resumes the last station on Now Playing (seen from Media Server): `resumeStation`;
 //   - selecting a station shows "Now Playing" (station on line 2), which keeps pushing
 //     refreshes while it plays.
 
@@ -36,8 +38,9 @@ class FakeReceiver {
   constructor({
     stations = ['Big R Radio - 80s Metal FM', 'Exclusively Elvis Presley'],
     input = 'IRADIO', loadMs = 20, path = [], ytunerMenu = true, cursorAt = null,
-    nowPlayingRefreshMs = 0, encode = (s) => s,
+    nowPlayingRefreshMs = 0, encode = (s) => s, resumeStation = null,
   } = {}) {
+    this.resumeStation = resumeStation;
     this.stations = stations;
     this.input = input;
     this.loadMs = loadMs;
@@ -103,6 +106,7 @@ class FakeReceiver {
         // Entering iRadio from another input fetches yTuner's menu again.
         this.stack = [{ node: topMenu(this.stations, true), cursor: 0, start: 0 }];
         this.input = next;
+        if (this.resumeStation) this._play(this.resumeStation);
         return this._emitCurrent();
       }
       this.input = next;

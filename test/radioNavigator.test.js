@@ -75,6 +75,14 @@ test('matches names the receiver sends double-encoded (UTF-8 read as Latin-1)', 
   assert.equal(fake.nowPlaying, 'Café Müller');
 });
 
+test('switching to iRadio that resumes the last station on Now Playing still gets to the station', async () => {
+  // Seen live: SIIRADIO from Media Server resumed the previous station instead of the top menu.
+  const fake = new FakeReceiver({ input: 'NET', resumeStation: ELVIS, nowPlayingRefreshMs: 5 });
+  await play(fake, { name: BIG_R });
+  assert.equal(fake.nowPlaying, BIG_R);
+  assert.deepEqual(fake.violations, []);
+});
+
 test('re-enters iRadio when the top menu came back without yTuner entries', async () => {
   const fake = new FakeReceiver({ ytunerMenu: false });
   await play(fake, { name: BIG_R });
