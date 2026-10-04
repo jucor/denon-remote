@@ -82,3 +82,16 @@ test('a new line 0 starts a fresh screen (no rows leak from the previous one)', 
   for (const l of MY_STATIONS) s = a.feed(l) || s;
   assert.deepEqual(s.items.map((i) => i.text), ['Julien']);
 });
+
+test('text the receiver double-encodes (UTF-8 read as Latin-1) is repaired', () => {
+  // Seen live: "We’ll" arrived as "Weâ\x80\x99ll".
+  assert.equal(parseNseLine('NSE1\x01Big R Radio - Weâ\x80\x99ll Be Right Back').text, 'Big R Radio - We’ll Be Right Back');
+  assert.equal(parseNseLine('NSE2\x01CafÃ© MÃ¼ller').text, 'Café Müller');
+  // Genuine Latin-1 text that is not valid UTF-8 is left alone.
+  assert.equal(parseNseLine('NSE2\x01Café').text, 'Café');
+});
+
+test('the cursor flag on the page indicator or the placeholder never becomes the screen cursor', () => {
+  const s = assemble(['NSE0X', 'NSE1\x08---- empty ----', 'NSE2', 'NSE3', 'NSE4', 'NSE5', 'NSE6', 'NSE7', 'NSE8\x28  [ 0/0 ]']);
+  assert.equal(s.cursor, -1);
+});

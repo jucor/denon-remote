@@ -8,6 +8,12 @@ const { createRadioRouter } = require('./lib/radioRoutes');
 const { searchStations } = require('./lib/radiobrowser');
 const { playStation } = require('./lib/radioNavigator');
 const { parseHttpStatus, httpStatusChanges } = require('./lib/httpStatus');
+const { LineSplitter } = require('./lib/lineSplitter');
+
+// Backstop: a stray socket error must never take the whole remote down (it did: 502).
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception (kept alive):', err && err.message, err && err.code);
+});
 
 const app = express();
 const server = http.createServer(app);
@@ -59,17 +65,29 @@ app.use(
 // Play a My Stations entry by driving the iRadio menu. Needs telnet: the receiver's
 // screen (NSE lines) only arrives over it, and every step waits for that screen.
 const displayLineListeners = new Set();
-function playOnReceiver(station) {
+let playAbort = null; // AbortController of the navigation in progress, if any
+const BUSY_SELECTING = 'Selecting a station on the receiver — wait a few seconds';
+async function playOnReceiver(station) {
   if (!connected) {
     const err = new Error('Needs the telnet connection — press Connect at the top, then try again');
     err.status = 503;
-    return Promise.reject(err);
+    throw err;
   }
-  return playStation(station, {
-    send: sendCommand,
-    onLine: (cb) => { displayLineListeners.add(cb); return () => displayLineListeners.delete(cb); },
-    getInput: () => (state.input || '').toUpperCase(),
-  });
+  playAbort = new AbortController();
+  try {
+    await playStation(station, {
+      send: sendCommand,
+      onLine: (cb) => { displayLineListeners.add(cb); return () => displayLineListeners.delete(cb); },
+      getInput: () => (state.input || '').toUpperCase(),
+    }, { signal: playAbort.signal });
+  } finally {
+    playAbort = null;
+  }
+}
+
+// Called whenever telnet goes away: a navigation must not carry on over HTTP, blind.
+function abortPlay() {
+  if (playAbort) playAbort.abort(new Error('Telnet connection lost while selecting the station'));
 }
 
 // --- Denon Client Management ---
@@ -85,8 +103,7 @@ let state = {
   sdb: null,
 };
 
-function parseResponse(data) {
-  const lines = data.toString().trim().split('\r');
+function parseResponse(lines) {
   const events = [];
   for (const raw of lines) {
     const line = raw.trim();
@@ -163,11 +180,12 @@ function connectDenon(host) {
   if (denon) {
     const oldDenon = denon;
     denon = null;
-    oldDenon.removeAllListeners();
-    try { oldDenon.end(); } catch (e) { /* ignore */ }
+    abortPlay();
+    oldDenon.discard();
   }
 
   denon = new DenonClient();
+  const splitter = new LineSplitter(); // a TCP chunk can end mid-line
 
   denon.on('connect', () => {
     connected = true;
@@ -192,6 +210,7 @@ function connectDenon(host) {
   denon.on('error', err => {
     console.error('Denon connection error:', err.message);
     connected = false;
+    abortPlay();
     broadcast({ type: 'connection', value: 'error', message: err.message, httpAvailable: !!denonHost, telnetDisabled });
     scheduleTelnetRetry();
     updateHttpPolling(); // start polling as fallback
@@ -200,13 +219,14 @@ function connectDenon(host) {
   denon.on('close', () => {
     console.log('Denon connection closed');
     connected = false;
+    abortPlay();
     broadcast({ type: 'connection', value: 'disconnected', httpAvailable: !!denonHost, telnetDisabled });
     scheduleTelnetRetry();
     updateHttpPolling(); // start polling as fallback
   });
 
   denon.on('data', buffer => {
-    const events = parseResponse(buffer);
+    const events = parseResponse(splitter.push(buffer.toString()));
     for (const event of events) {
       broadcast(event);
       if (event.type === 'display') for (const cb of [...displayLineListeners]) cb(event.value);
@@ -254,8 +274,8 @@ function disconnectTelnet() {
     const oldDenon = denon;
     denon = null;
     connected = false;
-    oldDenon.removeAllListeners();
-    try { oldDenon.end(); } catch (e) { /* ignore */ }
+    abortPlay();
+    oldDenon.discard();
   }
   updateHttpPolling();
 }
@@ -369,6 +389,7 @@ app.post('/api/command', (req, res) => {
   const { cmd } = req.body;
   if (!cmd) return res.status(400).json({ error: 'cmd required' });
   if (!denonHost) return res.status(503).json({ error: 'No Denon host configured' });
+  if (playAbort && /^NS9/.test(String(cmd))) return res.status(409).json({ error: BUSY_SELECTING });
   const ok = sendCommand(cmd);
   if (!ok) return res.status(503).json({ error: 'Failed to send command' });
   res.json({ ok: true, cmd });
@@ -518,6 +539,8 @@ app.post('/api/sleep/:minutes', (req, res) => {
 
 // Source menu navigation (NS cursor for network sources)
 app.post('/api/nav/:action', (req, res) => {
+  // Menu keys pressed by hand while a station is being selected would derail it.
+  if (playAbort) return res.status(409).json({ error: BUSY_SELECTING });
   const actions = {
     up: 'NS90', down: 'NS91', left: 'NS92', right: 'NS93',
     enter: 'NS94', back: 'NS92',

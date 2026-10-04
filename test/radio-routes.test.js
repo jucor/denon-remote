@@ -210,3 +210,16 @@ test('POST /play returns 501 when no player is configured', async () => {
     await app.close();
   }
 });
+
+test('POST /play rejects a non-string or overlong name/category with 400, before touching the receiver', async () => {
+  let called = false;
+  const app = await startApp({ stationsFile: tmpFile(), category: 'Julien', play: async () => { called = true; } });
+  try {
+    for (const body of [{ name: {} }, { name: ['x'] }, { name: 'x'.repeat(301) }, { name: 'ok', category: 5 }]) {
+      assert.equal((await postPlay(app.base, body)).status, 400, JSON.stringify(body).slice(0, 40));
+    }
+    assert.equal(called, false);
+  } finally {
+    await app.close();
+  }
+});

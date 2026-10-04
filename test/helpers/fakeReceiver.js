@@ -1,42 +1,56 @@
 'use strict';
 // Simulated RCD-N9 iRadio menu, modelled on behaviour observed on the real receiver
 // (2026-10-04, via yTuner):
-//   - every cursor move / enter / back pushes the full NSE0..NSE8 screen unprompted;
+//   - every cursor move / page / Back / OK pushes the full NSE0..NSE8 screen unprompted;
+//   - lists show a sliding 7-row window; Up/Down wrap around the ends; Page Down/Up move
+//     the cursor 7 items and wrap too. There is no reliable page indicator on line 8;
 //   - entering a folder first shows a "---- empty ----" placeholder, then the loaded list;
 //   - a key pressed while a list is loading leaves the menu stuck on "empty" (recorded
 //     in `violations` — the navigator must never do this);
 //   - Back (NS92) at the top menu does nothing and pushes nothing;
-//   - selecting a station shows "Now Playing" with the station on the cursor line;
-//   - 7 items per page; line 8 holds the "[ n/m ]" page indicator.
+//   - after another input was used, the top menu can come back with only the receiver's
+//     own entries (no yTuner items) until iRadio is entered again from another input;
+//   - selecting a station shows "Now Playing" (station on line 2), which keeps pushing
+//     refreshes while it plays.
 
-const PAGE = 7;
+const ROWS = 7;
 
 function folder(title, children) { return { title, children }; }
 function station(title) { return { title }; }
 
-function defaultTree(stations) {
-  return folder('Internet Radio', [
+function topMenu(stations, withYtuner) {
+  const ytuner = [
     folder('*** YTuner ***', []),
     folder('Favourites', []),
     folder('My Stations', [folder('Julien', stations.map(station))]),
     folder('Radio Browser', []),
+  ];
+  return folder('Internet Radio', [
+    ...(withYtuner ? ytuner : []),
     folder('Recently Played', []),
     folder('Search by Keyword', []),
   ]);
 }
 
 class FakeReceiver {
-  constructor({ stations = ['Big R Radio - 80s Metal FM', 'Exclusively Elvis Presley'], input = 'IRADIO', loadMs = 20, path = [] } = {}) {
+  constructor({
+    stations = ['Big R Radio - 80s Metal FM', 'Exclusively Elvis Presley'],
+    input = 'IRADIO', loadMs = 20, path = [], ytunerMenu = true, cursorAt = null,
+    nowPlayingRefreshMs = 0, encode = (s) => s,
+  } = {}) {
+    this.stations = stations;
     this.input = input;
     this.loadMs = loadMs;
+    this.encode = encode; // how the receiver mangles text on the wire
+    this.nowPlayingRefreshMs = nowPlayingRefreshMs;
     this.sent = [];
     this.violations = [];
     this.nowPlaying = null;
     this.listeners = new Set();
     this.loading = false;
-    // Stack of { node, cursor } — cursor is an absolute index into node.children.
-    this.stack = [{ node: defaultTree(stations), cursor: 0 }];
+    this.stack = [{ node: topMenu(stations, ytunerMenu), cursor: 0, start: 0 }];
     for (const title of path) this._descend(title);
+    if (cursorAt !== null) this._top().cursor = cursorAt;
   }
 
   // io surface used by the navigator
@@ -45,35 +59,62 @@ class FakeReceiver {
     if (this.loading) { this.violations.push(`${cmd} sent while loading`); this.stuck = true; return; }
     setTimeout(() => this._handle(cmd), 2);
   }
-  onScreen(cb) { this.listeners.add(cb); return () => this.listeners.delete(cb); }
+  onLine(cb) { this.listeners.add(cb); return () => this.listeners.delete(cb); }
   getInput() { return this.input; }
+  stop() { clearInterval(this.refreshTimer); }
+
+  _top() { return this.stack[this.stack.length - 1]; }
 
   _descend(title) {
-    const top = this.stack[this.stack.length - 1];
+    const top = this._top();
     const i = top.node.children.findIndex((c) => c.title === title);
     if (i < 0) throw new Error(`fake: no ${title}`);
     top.cursor = i;
     const child = top.node.children[i];
-    if (child.children) this.stack.push({ node: child, cursor: 0 });
+    if (child.children) this.stack.push({ node: child, cursor: 0, start: 0 });
     else this._play(child.title);
   }
 
   _play(title) {
     this.nowPlaying = title;
-    this.stack.push({ node: { title: 'Now Playing', nowPlaying: title }, cursor: 0 });
+    this.stack.push({ node: { title: 'Now Playing', nowPlaying: title }, cursor: 0, start: 0 });
+    clearInterval(this.refreshTimer);
+    if (this.nowPlayingRefreshMs) {
+      this.refreshTimer = setInterval(() => { if (this._top().node.nowPlaying) this._emitCurrent(); }, this.nowPlayingRefreshMs);
+    }
+  }
+
+  _move(top, to, upward) {
+    const n = top.node.children.length;
+    top.cursor = ((to % n) + n) % n;
+    if (top.cursor < top.start || top.cursor >= top.start + ROWS || upward) {
+      const start = upward ? top.cursor - 1 : top.cursor - 5;
+      top.start = Math.max(0, Math.min(start, n - ROWS));
+    }
   }
 
   _handle(cmd) {
     if (this.stuck) return this._emit(this._lines('My Stations', [], true));
-    const top = this.stack[this.stack.length - 1];
+    const top = this._top();
     const kids = top.node.children || [];
+    if (cmd.startsWith('SI')) {
+      const next = cmd.slice(2);
+      if (next === 'IRADIO' && this.input !== 'IRADIO') {
+        // Entering iRadio from another input fetches yTuner's menu again.
+        this.stack = [{ node: topMenu(this.stations, true), cursor: 0, start: 0 }];
+        this.input = next;
+        return this._emitCurrent();
+      }
+      this.input = next;
+      return;
+    }
+    if (this.input !== 'IRADIO') return;
     switch (cmd) {
-      case 'SIIRADIO': this.input = 'IRADIO'; return this._emitCurrent();
-      case 'NSE': return this.input === 'IRADIO' ? this._emitCurrent() : undefined;
-      case 'NS90': top.cursor = Math.max(0, top.cursor - 1); return this._emitCurrent();
-      case 'NS91': top.cursor = Math.min(kids.length - 1, top.cursor + 1); return this._emitCurrent();
-      case 'NS9Y': top.cursor = Math.min(kids.length - 1, (Math.floor(top.cursor / PAGE) + 1) * PAGE); return this._emitCurrent();
-      case 'NS9X': top.cursor = Math.max(0, (Math.floor(top.cursor / PAGE) - 1) * PAGE); return this._emitCurrent();
+      case 'NSE': return this._emitCurrent();
+      case 'NS90': if (!kids.length) return; this._move(top, top.cursor - 1, true); return this._emitCurrent();
+      case 'NS91': if (!kids.length) return; this._move(top, top.cursor + 1, false); return this._emitCurrent();
+      case 'NS9X': if (!kids.length) return; this._move(top, top.cursor - ROWS, true); return this._emitCurrent();
+      case 'NS9Y': if (!kids.length) return; this._move(top, top.cursor + ROWS, false); return this._emitCurrent();
       case 'NS92':
         if (this.stack.length === 1) return; // top menu: nothing happens
         this.stack.pop();
@@ -82,7 +123,7 @@ class FakeReceiver {
         const child = kids[top.cursor];
         if (!child) return;
         if (!child.children) { this._play(child.title); return this._emitCurrent(); }
-        this.stack.push({ node: child, cursor: 0 });
+        this.stack.push({ node: child, cursor: 0, start: 0 });
         this.loading = true;
         this._emit(this._lines(child.title, [], true));
         setTimeout(() => { this.loading = false; this._emitCurrent(); }, this.loadMs);
@@ -93,31 +134,28 @@ class FakeReceiver {
   }
 
   _emitCurrent() {
-    const top = this.stack[this.stack.length - 1];
+    const top = this._top();
     if (top.node.nowPlaying) {
       return this._emit([
-        'NSE0Now Playing', 'NSE1\x20Some song title', `NSE2\x09${top.node.nowPlaying}`,
-        'NSE3', 'NSE4\x01', 'NSE5\x20  000:01     100%', 'NSE6', 'NSE7', 'NSE8',
+        'NSE0Now Playing', `NSE1\x01${this.encode('Warrant – Heaven')}`, `NSE2\x09${this.encode(top.node.nowPlaying)}`,
+        'NSE3\x01', 'NSE4\x01', 'NSE5\x01  000:01     100%', 'NSE6', 'NSE7', 'NSE8',
       ]);
     }
     const kids = top.node.children;
-    const page = Math.floor(top.cursor / PAGE);
-    const rows = kids.slice(page * PAGE, page * PAGE + PAGE).map((c, i) => ({
-      text: c.title, folder: !!c.children, cursor: page * PAGE + i === top.cursor,
+    const rows = kids.slice(top.start, top.start + ROWS).map((c, i) => ({
+      text: this.encode(c.title), folder: !!c.children, cursor: top.start + i === top.cursor,
     }));
-    const total = Math.max(1, Math.ceil(kids.length / PAGE));
-    this._emit(this._lines(top.node.title, rows, false, kids.length ? `${page + 1}/${total}` : '0/0'));
+    this._emit(this._lines(top.node.title, rows, kids.length === 0));
   }
 
-  _lines(title, rows, empty, pageText = '0/0') {
+  _lines(title, rows, empty) {
     const out = [`NSE0${title}`];
     if (empty) out.push('NSE1\x08---- empty ----');
     for (const r of rows) {
       const info = (r.folder ? 0x02 : 0x01) | (r.cursor ? 0x08 : 0);
       out.push(`NSE${out.length}${String.fromCharCode(info)}${r.text}`);
     }
-    while (out.length < 8) out.push(`NSE${out.length}`);
-    out.push(`NSE8\x20  [    ${pageText}    ]`);
+    while (out.length < 9) out.push(`NSE${out.length}`);
     return out;
   }
 

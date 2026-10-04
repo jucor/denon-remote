@@ -463,6 +463,17 @@
     background: var(--surface2);
   }
 
+  /* Tappable rows say so without hovering: a chevron, and a ring for keyboard focus */
+  .display-lines .display-line.selectable::after {
+    content: ' \203A';
+    color: var(--text-dim);
+  }
+
+  .display-lines .display-line.selectable:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
   /* Playback */
   .playback-row {
     display: flex;
@@ -1174,6 +1185,22 @@ function renderRadioMine(stations) {
     row.querySelector('.radio-remove').onclick = (ev) => { ev.stopPropagation(); radioRemove(s, ev.currentTarget); };
     el.appendChild(row);
   }
+  radioUpdatePlayAvailability();
+}
+
+// Playing walks the receiver's menu, which needs the telnet connection: say so up front
+// rather than failing after a tap.
+const RADIO_NEEDS_TELNET = 'Play needs the telnet connection — press Connect at the top';
+function radioUpdatePlayAvailability() {
+  const buttons = document.querySelectorAll('#radio-mystations .radio-play');
+  for (const b of buttons) {
+    if (b.textContent === '…') continue; // a play in progress re-enables itself
+    b.disabled = !isTelnetConnected;
+    b.title = isTelnetConnected ? 'Play on the receiver' : RADIO_NEEDS_TELNET;
+  }
+  const status = document.getElementById('radio-mine-status');
+  if (!isTelnetConnected && buttons.length) radioMineStatus(RADIO_NEEDS_TELNET);
+  else if (status.textContent === RADIO_NEEDS_TELNET) radioMineStatus('');
 }
 
 function radioMineStatus(msg, isError) {
@@ -1184,7 +1211,10 @@ function radioMineStatus(msg, isError) {
 
 // Switch the receiver to iRadio and walk its menu to the station (server-side, over telnet).
 async function radioPlay(s, btn) {
-  if (btn.disabled) return;
+  if (btn.disabled) {
+    if (!isTelnetConnected) radioMineStatus(RADIO_NEEDS_TELNET, true);
+    return;
+  }
   btn.disabled = true;
   btn.textContent = '…';
   radioMineStatus('Selecting “' + s.name + '” on the receiver — takes a few seconds…');
@@ -1198,8 +1228,8 @@ async function radioPlay(s, btn) {
   } catch (e) {
     radioMineStatus('Could not play “' + s.name + '”: ' + e.message, true);
   } finally {
-    btn.disabled = false;
     btn.textContent = '▶ Play';
+    btn.disabled = !isTelnetConnected;
   }
 }
 
@@ -1433,6 +1463,7 @@ let isTelnetConnected = false;
 
 function updateConnection(val, host, httpAvailable, td) {
   isTelnetConnected = (val === 'connected');
+  radioUpdatePlayAvailability();
   const el = document.getElementById('conn-status');
   const bar = document.getElementById('reconnect-bar');
   const disconnectBtn = document.getElementById('disconnect-btn');
@@ -1650,6 +1681,17 @@ function updateTreble(val) {
 
 const displayLines = {};
 const displayMeta = {}; // { cursor: bool, selectable: bool } per line
+// The receiver sends UTF-8 text that was already read as Latin-1 once ("We’ll" arrives
+// as "Weâ\x80\x99ll"). Undo that when the result is valid UTF-8. Same as lib/nseScreen.js.
+function fixDoubleEncoding(text) {
+  if (!/[\u0080-ÿ]/.test(text) || /[^\u0000-ÿ]/.test(text)) return text;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(text, (c) => c.charCodeAt(0)));
+  } catch (e) {
+    return text;
+  }
+}
+
 function handleDisplay(line) {
   // NSE0..NSE8 or NSA0..NSA8 — only relevant for network audio sources
   if (!isNseInput()) return;
@@ -1660,16 +1702,17 @@ function handleDisplay(line) {
     let raw = match[2].split('\x00')[0];
     let hasCursor = false;
     let isSelectable = false;
-    let text = raw.trim();
+    let text = fixDoubleEncoding(raw).trim();
     if (idx >= 1 && idx <= 8 && raw.length > 0) {
       const code = raw.charCodeAt(0);
       // NSE info byte, as observed on the RCD-N9: 0x01 station, 0x02 folder,
       // 0x08 cursor, 0x20 information only (Now Playing text, "[ n/m ]" page indicator).
-      // Same rules as lib/nseScreen.js.
-      text = raw.substring(1).trim();
-      hasCursor = (code & 0x08) !== 0;
-      isSelectable = text !== '' && (code & 0x20) === 0 &&
-        text !== '---- empty ----' && !/^\[\s*\d+\s*\/\s*\d+\s*\]$/.test(text);
+      // Same rules as lib/nseScreen.js. Now Playing has nothing to select (its song and
+      // time lines carry 0x01 too).
+      text = fixDoubleEncoding(raw.substring(1)).trim();
+      const isMarker = text === '---- empty ----' || /^\[\s*\d+\s*\/\s*\d+\s*\]$/.test(text);
+      hasCursor = (code & 0x08) !== 0 && !isMarker;
+      isSelectable = text !== '' && (code & 0x20) === 0 && !isMarker && displayLines[0] !== 'Now Playing';
     }
     displayLines[idx] = text;
     displayMeta[idx] = { cursor: hasCursor, selectable: isSelectable };
@@ -1731,7 +1774,10 @@ function updateReceiverDisplay() {
       // The cursor marker shows on any row the receiver flags, tappable or not.
       const cls = 'display-line' + (meta.selectable ? ' selectable' : '') + (meta.cursor ? ' cursor' : '');
       const arrow = meta.cursor ? '&#x25B6; ' : '';
-      const click = meta.selectable ? ' onclick="navToLine(' + i + ')"' : '';
+      const click = meta.selectable
+        ? ' role="button" tabindex="0" onclick="navToLine(' + i + ')"' +
+          ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();navToLine(' + i + ')}"'
+        : '';
       parts.push('<div class="' + cls + '"' + click + '>' + arrow + escapeHtml(displayLines[i]) + '</div>');
     }
   }

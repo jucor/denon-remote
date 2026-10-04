@@ -6,63 +6,91 @@ const { FakeReceiver } = require('./helpers/fakeReceiver');
 
 const BIG_R = 'Big R Radio - 80s Metal FM';
 const ELVIS = 'Exclusively Elvis Presley';
+const OPTS = { timeoutMs: 400, scanTimeoutMs: 100, reenterMs: 10 };
+const many = (n) => Array.from({ length: n }, (_, i) => `Station ${String(i + 1).padStart(2, '0')}`);
 
-function io(fake) {
-  return { send: (c) => fake.send(c), onLine: (cb) => fake.onScreen(cb), getInput: () => fake.getInput() };
+async function play(fake, station, opts = OPTS) {
+  try {
+    return await playStation({ category: 'Julien', ...station }, fake, opts);
+  } finally {
+    fake.stop();
+  }
 }
 
 test('plays a station starting from the top iRadio menu', async () => {
   const fake = new FakeReceiver();
-  await playStation({ name: ELVIS, category: 'Julien' }, io(fake), { timeoutMs: 500 });
+  await play(fake, { name: ELVIS });
   assert.equal(fake.nowPlaying, ELVIS);
   assert.deepEqual(fake.violations, []);
 });
 
-test('backs out of Now Playing (another station) before navigating', async () => {
-  const fake = new FakeReceiver({ path: ['My Stations', 'Julien', ELVIS] });
-  await playStation({ name: BIG_R, category: 'Julien' }, io(fake), { timeoutMs: 500 });
+test('backs out of Now Playing (another station) before navigating, despite its refreshes', async () => {
+  const fake = new FakeReceiver({ path: ['My Stations', 'Julien', ELVIS], nowPlayingRefreshMs: 5 });
+  await play(fake, { name: BIG_R });
   assert.equal(fake.nowPlaying, BIG_R);
   assert.deepEqual(fake.violations, []);
 });
 
 test('switches to iRadio first when another input is selected', async () => {
   const fake = new FakeReceiver({ input: 'CD' });
-  await playStation({ name: BIG_R, category: 'Julien' }, io(fake), { timeoutMs: 500 });
+  await play(fake, { name: BIG_R });
   assert.equal(fake.sent[0], 'SIIRADIO');
   assert.equal(fake.nowPlaying, BIG_R);
 });
 
 test('never presses a key while a list is loading (slow yTuner)', async () => {
   const fake = new FakeReceiver({ loadMs: 120 });
-  await playStation({ name: BIG_R, category: 'Julien' }, io(fake), { timeoutMs: 1000 });
+  await play(fake, { name: BIG_R }, { timeoutMs: 1000 });
   assert.deepEqual(fake.violations, []);
   assert.equal(fake.nowPlaying, BIG_R);
 });
 
-test('pages down to reach a station beyond the first page', async () => {
-  const many = Array.from({ length: 17 }, (_, i) => `Station ${String(i + 1).padStart(2, '0')}`);
-  const fake = new FakeReceiver({ stations: many });
-  await playStation({ name: 'Station 16', category: 'Julien' }, io(fake), { timeoutMs: 500 });
+test('finds a station beyond the visible window (sliding list, no page indicator)', async () => {
+  const fake = new FakeReceiver({ stations: many(17) });
+  await play(fake, { name: 'Station 16' });
   assert.equal(fake.nowPlaying, 'Station 16');
-  assert.ok(fake.sent.includes('NS9Y'), 'expected a page-down');
   assert.deepEqual(fake.violations, []);
 });
 
+test('finds a station above the cursor when the cursor starts low in a long list', async () => {
+  const fake = new FakeReceiver({ stations: many(17), path: ['My Stations', 'Julien'], cursorAt: 14 });
+  await play(fake, { name: 'Station 03' });
+  assert.equal(fake.nowPlaying, 'Station 03');
+});
+
+test('a name that is the start of another name never plays the wrong one', async () => {
+  const names = ['Radio Paradise', ...many(8), 'Radio Paradise Mellow Mix'];
+  const fake = new FakeReceiver({ stations: names });
+  await play(fake, { name: 'Radio Paradise Mellow Mix' });
+  assert.equal(fake.nowPlaying, 'Radio Paradise Mellow Mix');
+  const fake2 = new FakeReceiver({ stations: names });
+  await play(fake2, { name: 'Radio Paradise' });
+  assert.equal(fake2.nowPlaying, 'Radio Paradise');
+});
+
+test('matches names the receiver sends double-encoded (UTF-8 read as Latin-1)', async () => {
+  const mangle = (s) => Buffer.from(s, 'utf8').toString('latin1');
+  const fake = new FakeReceiver({ stations: ['Radio Nova – Jazz', 'Café Müller'], encode: mangle });
+  await play(fake, { name: 'Café Müller' });
+  assert.equal(fake.nowPlaying, 'Café Müller');
+});
+
+test('re-enters iRadio when the top menu came back without yTuner entries', async () => {
+  const fake = new FakeReceiver({ ytunerMenu: false });
+  await play(fake, { name: BIG_R });
+  assert.equal(fake.nowPlaying, BIG_R);
+  assert.ok(fake.sent.includes('SIIRADIO'), 'expected iRadio to be re-entered');
+});
+
 test('fails with a clear error, without playing anything, when the station is missing', async () => {
-  const fake = new FakeReceiver();
-  await assert.rejects(
-    playStation({ name: 'No Such Radio', category: 'Julien' }, io(fake), { timeoutMs: 500 }),
-    /No Such Radio.*not found/,
-  );
+  const fake = new FakeReceiver({ stations: many(17) });
+  await assert.rejects(play(fake, { name: 'No Such Radio' }), /No Such Radio.*not found/);
   assert.equal(fake.nowPlaying, null);
 });
 
 test('fails clearly when the category folder is missing', async () => {
   const fake = new FakeReceiver();
-  await assert.rejects(
-    playStation({ name: BIG_R, category: 'Nobody' }, io(fake), { timeoutMs: 500 }),
-    /Nobody.*not found/,
-  );
+  await assert.rejects(play(fake, { name: BIG_R, category: 'Nobody' }), /Nobody.*not found/);
   assert.equal(fake.nowPlaying, null);
 });
 
@@ -71,4 +99,22 @@ test('times out when the receiver sends no screen', async () => {
   const t0 = Date.now();
   await assert.rejects(playStation({ name: BIG_R, category: 'Julien' }, silent, { timeoutMs: 150 }), /did not respond/);
   assert.ok(Date.now() - t0 < 1000);
+});
+
+test('stops at once, without further key presses, when the connection drops (abort signal)', async () => {
+  const fake = new FakeReceiver({ loadMs: 300 });
+  const ac = new AbortController();
+  const p = play(fake, { name: BIG_R }, { timeoutMs: 2000, signal: ac.signal });
+  setTimeout(() => ac.abort(new Error('Telnet connection lost')), 60);
+  const t0 = Date.now();
+  await assert.rejects(p, /connection lost/);
+  assert.ok(Date.now() - t0 < 200);
+  const sentAtAbort = fake.sent.length;
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(fake.sent.length, sentAtAbort);
+});
+
+test('gives up after an overall deadline even if every step answers', async () => {
+  const fake = new FakeReceiver({ stations: many(17), loadMs: 60 });
+  await assert.rejects(play(fake, { name: 'Station 16' }, { timeoutMs: 400, deadlineMs: 100 }), /took too long/);
 });

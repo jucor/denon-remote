@@ -93,6 +93,7 @@ test('My Stations: each row has a visible Play button that plays it on the recei
   const { page, close } = await boot({ stationsText: TWO_STATIONS, play: async (s) => { calls.push(s); } });
   try {
     await page.waitForSelector('#radio-mystations .radio-mine');
+    await page.evaluate(() => updateConnection('connected'));
     const buttons = await page.$$eval('#radio-mystations .radio-mine .radio-play', (els) =>
       els.map((e) => e.textContent.trim()));
     assert.deepEqual(buttons, ['▶ Play', '▶ Play']);
@@ -103,7 +104,7 @@ test('My Stations: each row has a visible Play button that plays it on the recei
 
     // Clicking the row itself (not just the button) plays it too.
     await page.click('#radio-mystations .radio-mine:nth-child(1) .radio-name');
-    await page.waitForFunction(() => /Big R Radio/.test(document.getElementById('radio-mine-status').textContent));
+    await page.waitForFunction(() => /^Playing “Big R Radio/.test(document.getElementById('radio-mine-status').textContent));
     assert.equal(calls[1].name, 'Big R Radio - 80s Metal FM');
   } finally {
     await close();
@@ -115,6 +116,7 @@ test('My Stations: a failed Play shows the reason next to the list (browser E2E)
   const { page, close } = await boot({ stationsText: TWO_STATIONS, play });
   try {
     await page.waitForSelector('#radio-mystations .radio-mine');
+    await page.evaluate(() => updateConnection('connected'));
     await page.click('#radio-mystations .radio-mine:first-child .radio-play');
     await page.waitForFunction(() => /telnet/.test(document.getElementById('radio-mine-status').textContent));
     assert.match(await page.getAttribute('#radio-mine-status', 'class'), /error/);
@@ -155,6 +157,70 @@ test('Receiver display: shown for the HTTP API input name "NET" too (browser E2E
       ['NSE0Julien', 'NSE1\x09Big R Radio - 80s Metal FM', 'NSE2', 'NSE3', 'NSE4', 'NSE5', 'NSE6', 'NSE7', 'NSE8'].forEach(handleDisplay);
     });
     assert.match(await page.textContent('#receiver-display'), /Big R Radio/);
+  } finally {
+    await close();
+  }
+});
+
+test('My Stations: Play is disabled with a visible reason until telnet is connected (browser E2E)', async () => {
+  const { page, close } = await boot({ stationsText: TWO_STATIONS, play: async () => {} });
+  try {
+    await page.waitForSelector('#radio-mystations .radio-mine');
+    await page.evaluate(() => updateConnection('disconnected', '', true, true));
+    assert.deepEqual(await page.$$eval('.radio-play', (els) => els.map((e) => e.disabled)), [true, true]);
+    assert.match(await page.textContent('#radio-mine-status'), /Connect/);
+    await page.evaluate(() => updateConnection('connected'));
+    assert.deepEqual(await page.$$eval('.radio-play', (els) => els.map((e) => e.disabled)), [false, false]);
+    assert.equal(await page.textContent('#radio-mine-status'), '');
+  } finally {
+    await close();
+  }
+});
+
+test('Receiver display: repairs double-encoded text; placeholder and Now Playing rows are not tappable (browser E2E)', async () => {
+  const { page, close } = await boot();
+  try {
+    const rows = () => page.$$eval('#receiver-display .display-line', (els) => els.map((e) => ({
+      text: e.textContent.trim(), cursor: e.classList.contains('cursor'), tappable: e.classList.contains('selectable'),
+    })));
+    await page.evaluate(() => {
+      updateInput('IRADIO');
+      ['NSE0Now Playing', 'NSE1\x01Weâ\x80\x99ll Be Right Back', 'NSE2\x09BOB Hair Metal', 'NSE3', 'NSE4\x01',
+        'NSE5\x01  000:03     100%', 'NSE6', 'NSE7', 'NSE8'].forEach(handleDisplay);
+    });
+    assert.deepEqual(await rows(), [
+      { text: 'Now Playing', cursor: false, tappable: false },
+      { text: 'We’ll Be Right Back', cursor: false, tappable: false },
+      { text: '▶ BOB Hair Metal', cursor: true, tappable: false },
+      { text: '000:03     100%', cursor: false, tappable: false },
+    ]);
+    await page.evaluate(() => {
+      ['NSE0My Stations', 'NSE1\x08---- empty ----', 'NSE2', 'NSE3', 'NSE4', 'NSE5', 'NSE6', 'NSE7', 'NSE8'].forEach(handleDisplay);
+    });
+    assert.deepEqual(await rows(), [
+      { text: 'My Stations', cursor: false, tappable: false },
+      { text: '---- empty ----', cursor: false, tappable: false },
+    ]);
+  } finally {
+    await close();
+  }
+});
+
+test('Receiver display: tappable rows are keyboard buttons (Tab + Enter) (browser E2E)', async () => {
+  const { page, close } = await boot();
+  try {
+    await page.evaluate(() => {
+      window.navToLine = (i) => { window.__navTo = i; };
+      updateInput('IRADIO');
+      ['NSE0Julien', 'NSE1\x09Big R Radio - 80s Metal FM', 'NSE2\x01Exclusively Elvis Presley',
+        'NSE3', 'NSE4', 'NSE5', 'NSE6', 'NSE7', 'NSE8'].forEach(handleDisplay);
+    });
+    const roles = await page.$$eval('#receiver-display .display-line.selectable', (els) =>
+      els.map((e) => [e.getAttribute('role'), e.getAttribute('tabindex')]));
+    assert.deepEqual(roles, [['button', '0'], ['button', '0']]);
+    await page.focus('#receiver-display .display-line.selectable:nth-of-type(3)');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => window.__navTo), 2);
   } finally {
     await close();
   }
