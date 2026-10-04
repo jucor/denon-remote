@@ -54,3 +54,14 @@ test('isRelayUrl catches the relay path in any case or encoding', () => {
   ]) assert.equal(isRelayUrl(u), true, u);
   assert.equal(isRelayUrl(NRJ), false);
 });
+
+// Security review (parser differential): a forged line break + "name=relay address" in a
+// station's NAME must not become a second entry whose URL is a relay address.
+test('a newline-forged entry in a station name does not reach the allow-list', async () => {
+  const st = require('../lib/stations');
+  const forged = `Foo\nEvil=${savedAddress(BASE, EVIL)}`;
+  const f = files({ stations: st.addStation('[Julien]\n', 'Julien', { name: forged, url: 'http://ok.example/a.mp3' }) });
+  assert.equal(await isSavedStreamUrl({ ...f, url: EVIL }), false);
+  const g = files({ favourites: [{ name: forged, url: 'http://ok.example/a.mp3' }] });
+  assert.equal(await isSavedStreamUrl({ ...g, url: EVIL }), false);
+});

@@ -208,6 +208,22 @@ DENON_HOST=192.168.1.11 PORT=3003 node server.js
 - **Writing yTuner's `stations.ini` needs `user: "1026:100"`** in `misc.yml`. The image runs as non-root `appuser` (uid 100), but a **Synology ACL** on `/volume2/docker/ytuner/config` overrides the 777 POSIX bits and only grants the file owner (uid 1026 = `julien`) write. Symptom without it: `EACCES ... stations.ini.tmp` on add/remove. Probe with `docker exec -u <uid>:<gid> denon-remote touch /ytuner-config/.probe`.
 - The design spec lives at `docs/superpowers/specs/2026-07-05-ytuner-radio-search-design.md` (includes why direct text entry / HEOS are impossible on this unit).
 
+## Geo-blocked stations — through the NAS's VPN
+
+NRJ-group streams (Rire et Chansons, NRJ, Chérie FM, Nostalgie) answer **403 to UK addresses**
+and 200 through `gluetun` (the *arr VPN, Swedish exit) — seen 2026-10-04. The container joins
+the external network `arr_arr-net` (misc.yml) and gets `GEO_PROXY=http://gluetun:8888`.
+- The relay retries a 403/451 through the proxy (absolute-URI GET for HTTP, CONNECT tunnel for
+  HTTPS) and remembers the host. **Trap:** with `agent: false` Node ignores a per-request
+  `createConnection` and dials DIRECT (egress GB, 403 again) — the request uses an agent whose
+  only connection is the tunnel; the test's upstream accepts only tunnel connections.
+- Adding to My Stations / Favourites probes the stream; geo-blocked ones are saved as
+  `RELAY_BASE/api/radio/stream/u?url=<stream>` so the receiver's own menus play them via the
+  relay too ("via VPN" in the list). That route serves only URLs equal to a saved entry's URL
+  field (`lib/savedUrls.js`; never a text search). URLs pointing at the relay can't be added.
+- Relay responses are audio-only, `nosniff`, sandbox CSP (no stored XSS on our origin).
+- Live tests: **mute the receiver first** (`MUON`) — people are in the room.
+
 ## Play now — UPnP renderer (port 8080) + stream relay
 
 Each search result has **▶ Play now**: `POST /api/radio/playnow {name, url, codec}` →
