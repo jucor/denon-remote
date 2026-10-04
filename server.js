@@ -5,7 +5,7 @@ const path = require('path');
 const DenonClient = require('./lib/DenonClient');
 const { discover } = require('./lib/discovery');
 const { createRadioRouter } = require('./lib/radioRoutes');
-const { searchStations } = require('./lib/radiobrowser');
+const { searchStations, listTags, listCountries } = require('./lib/radiobrowser');
 const { playStation } = require('./lib/radioNavigator');
 const { parseHttpStatus, httpStatusChanges } = require('./lib/httpStatus');
 const { LineSplitter } = require('./lib/lineSplitter');
@@ -58,6 +58,8 @@ app.use(
     stationsFile,
     category: stationsCategory,
     search: (q) => searchStations(q, { base: radioBrowserBase }),
+    listTags: () => listTags({ base: radioBrowserBase }),
+    listCountries: () => listCountries({ base: radioBrowserBase }),
     play: playOnReceiver,
   })
 );

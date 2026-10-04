@@ -1019,6 +1019,7 @@
       <button id="radio-reset-btn" class="radio-linkbtn" onclick="radioReset()">Clear</button>
       <button id="radio-help-btn" class="radio-linkbtn" onclick="radioToggleHelp()">Search syntax ▾</button>
     </div>
+    <div id="radio-browse"></div>
     <div id="radio-help" class="radio-help" style="display:none">
       <div><b>By name</b> (default) — <code>fip</code>, <code>jazz radio</code></div>
       <div><b>tag:</b> genre/tag — <code>tag:jazz</code>, <code>tag:news</code></div>
@@ -1850,5 +1851,6 @@ document.addEventListener('visibilitychange', sendVisibility);
 connectWs();
 radioLoadMine();
 </script>
+<script src="radio-browse.js"></script>
 </body>
 </html>
