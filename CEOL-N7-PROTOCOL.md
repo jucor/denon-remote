@@ -93,6 +93,11 @@ The first byte after the line number in NSE/NSA responses is a bitmask:
 - Other bits: Don't Care
 
 Example: byte `0x0A` (0x02|0x08) = playable + cursor selected.
+
+**Observed on the RCD-N9 via yTuner (2026-10-04)** — the PDF's meanings don't match:
+`0x01` = station, `0x02` = folder, `0x08` = cursor, `0x20` = information only (Now Playing
+text, the `[ n/m ]` page indicator on line 8). E.g. `0x09` = station under the cursor,
+`0x0A` = folder under the cursor. See CLAUDE.md "Receiver display".
 Note: The PDF labels these "Bit1" and "Bit4" but actual values show 0x02 and 0x08.
 
 **No T9/text input**: The protocol has no character input commands. iRadio search uses

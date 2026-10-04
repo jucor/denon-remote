@@ -6,6 +6,8 @@ const DenonClient = require('./lib/DenonClient');
 const { discover } = require('./lib/discovery');
 const { createRadioRouter } = require('./lib/radioRoutes');
 const { searchStations } = require('./lib/radiobrowser');
+const { playStation } = require('./lib/radioNavigator');
+const { parseHttpStatus, httpStatusChanges } = require('./lib/httpStatus');
 
 const app = express();
 const server = http.createServer(app);
@@ -50,8 +52,25 @@ app.use(
     stationsFile,
     category: stationsCategory,
     search: (q) => searchStations(q, { base: radioBrowserBase }),
+    play: playOnReceiver,
   })
 );
+
+// Play a My Stations entry by driving the iRadio menu. Needs telnet: the receiver's
+// screen (NSE lines) only arrives over it, and every step waits for that screen.
+const displayLineListeners = new Set();
+function playOnReceiver(station) {
+  if (!connected) {
+    const err = new Error('Needs the telnet connection — press Connect at the top, then try again');
+    err.status = 503;
+    return Promise.reject(err);
+  }
+  return playStation(station, {
+    send: sendCommand,
+    onLine: (cb) => { displayLineListeners.add(cb); return () => displayLineListeners.delete(cb); },
+    getInput: () => (state.input || '').toUpperCase(),
+  });
+}
 
 // --- Denon Client Management ---
 
@@ -190,6 +209,7 @@ function connectDenon(host) {
     const events = parseResponse(buffer);
     for (const event of events) {
       broadcast(event);
+      if (event.type === 'display') for (const cb of [...displayLineListeners]) cb(event.value);
     }
   });
 
@@ -275,55 +295,19 @@ function pollHttpStatus() {
     let data = '';
     res.on('data', chunk => { data += chunk; });
     res.on('end', () => {
-      parseHttpStatus(data);
+      applyHttpStatus(data);
     });
   }).on('error', () => {
     // silently ignore poll errors
   });
 }
 
-function parseHttpStatus(xml) {
-  // Simple regex parsing — no XML library needed for this tiny response
-  const get = (tag) => {
-    const m = xml.match(new RegExp(`<${tag}><value>(.*?)</value></${tag}>`));
-    return m ? m[1] : null;
-  };
-
-  const power = get('Power');
-  const input = get('InputFuncSelect');
-  const volumeDb = get('MasterVolume');
-  const mute = get('Mute');
-
-  // Convert dB to Denon scale: -80dB = 0, 0dB = 80
-  // The CEOL uses 0-60 range, so -80 maps to 0, -20 maps to 60
-  let volume = null;
-  if (volumeDb !== null) {
-    const db = parseFloat(volumeDb);
-    if (!isNaN(db)) {
-      volume = String(Math.round(db + 80));
-      if (volume.length === 1) volume = '0' + volume;
-    }
-  }
-
-  // Broadcast changes (only if different from current state)
-  if (power !== null && power !== state.power) {
-    state.power = power;
-    broadcast({ type: 'power', value: power });
-  }
-  if (input !== null && input !== state.input) {
-    state.input = input;
-    broadcast({ type: 'input', value: input });
-  }
-  if (volume !== null && volume !== state.volume) {
-    state.volume = volume;
-    broadcast({ type: 'volume', value: volume });
-  }
-  if (mute !== null) {
-    const muteVal = mute.toUpperCase();
-    if (muteVal !== state.mute) {
-      state.mute = muteVal;
-      broadcast({ type: 'mute', value: muteVal });
-    }
+function applyHttpStatus(xml) {
+  // Broadcast changes (only if different from current state, and never over telnet's)
+  const changes = httpStatusChanges(parseHttpStatus(xml), state, { telnetConnected: connected });
+  for (const [type, value] of Object.entries(changes)) {
+    state[type] = value;
+    broadcast({ type, value });
   }
 }
 

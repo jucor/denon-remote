@@ -400,6 +400,10 @@
   .radio-sub { font-size: 11px; color: var(--text-dim); }
   .radio-add { flex-shrink: 0; font-size: 12px; padding: 6px 12px; background: var(--success); color: #111; }
   .radio-add:disabled { opacity: 0.7; }
+  .radio-mine { cursor: pointer; }
+  .radio-mine:hover { outline: 1px solid var(--accent); }
+  .radio-play { flex-shrink: 0; font-size: 12px; padding: 6px 12px; background: var(--accent); color: #fff; font-weight: 600; }
+  .radio-play:disabled { opacity: 0.7; }
   .radio-remove {
     flex-shrink: 0;
     width: 32px;
@@ -1015,7 +1019,8 @@
     </div>
     <div id="radio-status" class="radio-status"></div>
     <div id="radio-results" class="radio-list"></div>
-    <div id="radio-mine-title" class="radio-mine-title" style="display:none">On the receiver · My Stations</div>
+    <div id="radio-mine-title" class="radio-mine-title" style="display:none">On the receiver · My Stations — tap one to play it</div>
+    <div id="radio-mine-status" class="radio-status"></div>
     <div id="radio-mystations" class="radio-list"></div>
   </div>
 
@@ -1161,9 +1166,40 @@ function renderRadioMine(stations) {
   document.getElementById('radio-mine-title').style.display = list.length ? '' : 'none';
   el.innerHTML = '';
   for (const s of list) {
-    const row = radioRow('radio-mine', s, s.category || '', '<button class="radio-remove" title="Remove">×</button>');
-    row.querySelector('.radio-remove').onclick = (ev) => radioRemove(s, ev.currentTarget);
+    const row = radioRow('radio-mine', s, s.category || '',
+      '<button class="radio-play" title="Play on the receiver">▶ Play</button>' +
+      '<button class="radio-remove" title="Remove from My Stations">×</button>');
+    const playBtn = row.querySelector('.radio-play');
+    row.onclick = () => radioPlay(s, playBtn);
+    row.querySelector('.radio-remove').onclick = (ev) => { ev.stopPropagation(); radioRemove(s, ev.currentTarget); };
     el.appendChild(row);
+  }
+}
+
+function radioMineStatus(msg, isError) {
+  const el = document.getElementById('radio-mine-status');
+  el.textContent = msg || '';
+  el.className = 'radio-status' + (isError ? ' error' : '');
+}
+
+// Switch the receiver to iRadio and walk its menu to the station (server-side, over telnet).
+async function radioPlay(s, btn) {
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = '…';
+  radioMineStatus('Selecting “' + s.name + '” on the receiver — takes a few seconds…');
+  try {
+    await radioJson(await fetch('/api/radio/play', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: s.name, category: s.category })
+    }));
+    radioMineStatus('Playing “' + s.name + '”');
+  } catch (e) {
+    radioMineStatus('Could not play “' + s.name + '”: ' + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Play';
   }
 }
 
@@ -1536,7 +1572,8 @@ function updateMute(val) {
 }
 
 // Inputs that use NSE display data (network audio sources)
-const NSE_INPUTS = new Set(['IRADIO', 'SERVER', 'FAVORITES', 'USB', 'NETWORK', 'SPOTIFY', 'NAPSTER', 'IRP']);
+// ('NET' is the HTTP API's name for the network inputs.)
+const NSE_INPUTS = new Set(['IRADIO', 'SERVER', 'FAVORITES', 'USB', 'NETWORK', 'NET', 'SPOTIFY', 'NAPSTER', 'IRP']);
 let currentInput = null;
 
 function isNseInput() {
@@ -1626,10 +1663,13 @@ function handleDisplay(line) {
     let text = raw.trim();
     if (idx >= 1 && idx <= 8 && raw.length > 0) {
       const code = raw.charCodeAt(0);
-      // NSE info byte is a bitmask: bit1(0x02)=playable, bit3(0x08)=cursor
-      hasCursor = (code & 0x08) !== 0;
-      isSelectable = (code & 0x02) !== 0;
+      // NSE info byte, as observed on the RCD-N9: 0x01 station, 0x02 folder,
+      // 0x08 cursor, 0x20 information only (Now Playing text, "[ n/m ]" page indicator).
+      // Same rules as lib/nseScreen.js.
       text = raw.substring(1).trim();
+      hasCursor = (code & 0x08) !== 0;
+      isSelectable = text !== '' && (code & 0x20) === 0 &&
+        text !== '---- empty ----' && !/^\[\s*\d+\s*\/\s*\d+\s*\]$/.test(text);
     }
     displayLines[idx] = text;
     displayMeta[idx] = { cursor: hasCursor, selectable: isSelectable };
@@ -1687,12 +1727,12 @@ function updateReceiverDisplay() {
     const isTitle = (i === 0);
     if (isTitle) {
       parts.push('<div class="display-line dim">' + escapeHtml(displayLines[i]) + '</div>');
-    } else if (meta.selectable) {
-      const cls = meta.cursor ? 'display-line selectable cursor' : 'display-line selectable';
+    } else {
+      // The cursor marker shows on any row the receiver flags, tappable or not.
+      const cls = 'display-line' + (meta.selectable ? ' selectable' : '') + (meta.cursor ? ' cursor' : '');
       const arrow = meta.cursor ? '&#x25B6; ' : '';
-      parts.push('<div class="' + cls + '" onclick="navToLine(' + i + ')">' + arrow + escapeHtml(displayLines[i]) + '</div>');
-    } else if (displayLines[i]) {
-      parts.push('<div class="display-line">' + escapeHtml(displayLines[i]) + '</div>');
+      const click = meta.selectable ? ' onclick="navToLine(' + i + ')"' : '';
+      parts.push('<div class="' + cls + '"' + click + '>' + arrow + escapeHtml(displayLines[i]) + '</div>');
     }
   }
   if (parts.length === 0) {

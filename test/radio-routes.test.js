@@ -125,3 +125,88 @@ test('GET /mystations reflects what was added, DELETE /remove takes it away', as
     await app.close();
   }
 });
+
+function postPlay(base, body) {
+  return fetch(`${base}/api/radio/play`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+test('POST /play asks the receiver to play the station, defaulting to the configured category', async () => {
+  const calls = [];
+  const app = await startApp({ stationsFile: tmpFile(), category: 'Julien', play: async (s) => { calls.push(s); } });
+  try {
+    const res = await postPlay(app.base, { name: 'FIP Jazz' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true });
+    assert.deepEqual(calls, [{ name: 'FIP Jazz', category: 'Julien' }]);
+    await postPlay(app.base, { name: 'Nova', category: 'Other' });
+    assert.deepEqual(calls[1], { name: 'Nova', category: 'Other' });
+  } finally {
+    await app.close();
+  }
+});
+
+test('POST /play without a name returns 400', async () => {
+  const app = await startApp({ stationsFile: tmpFile(), category: 'Julien', play: async () => {} });
+  try {
+    assert.equal((await postPlay(app.base, {})).status, 400);
+  } finally {
+    await app.close();
+  }
+});
+
+test('POST /play passes through a status set by the player (e.g. 503 when telnet is down)', async () => {
+  const play = async () => { throw Object.assign(new Error('Needs the telnet connection'), { status: 503 }); };
+  const app = await startApp({ stationsFile: tmpFile(), category: 'Julien', play });
+  try {
+    const res = await postPlay(app.base, { name: 'FIP Jazz' });
+    assert.equal(res.status, 503);
+    assert.match((await res.json()).error, /telnet/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('POST /play reports a navigation failure as 502 with its message', async () => {
+  const play = async () => { throw new Error('"FIP Jazz" not found on the receiver'); };
+  const app = await startApp({ stationsFile: tmpFile(), category: 'Julien', play });
+  try {
+    const res = await postPlay(app.base, { name: 'FIP Jazz' });
+    assert.equal(res.status, 502);
+    assert.match((await res.json()).error, /not found/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('POST /play refuses a second request while one is still navigating (409)', async () => {
+  let release;
+  const play = () => new Promise((r) => { release = r; });
+  const app = await startApp({ stationsFile: tmpFile(), category: 'Julien', play });
+  try {
+    const first = postPlay(app.base, { name: 'A' });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal((await postPlay(app.base, { name: 'B' })).status, 409);
+    release();
+    assert.equal((await first).status, 200);
+    // The lock is released afterwards: a new request is accepted.
+    const third = postPlay(app.base, { name: 'C' });
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    assert.equal((await third).status, 200);
+  } finally {
+    await app.close();
+  }
+});
+
+test('POST /play returns 501 when no player is configured', async () => {
+  const app = await startApp({ stationsFile: tmpFile(), category: 'Julien' });
+  try {
+    assert.equal((await postPlay(app.base, { name: 'FIP Jazz' })).status, 501);
+  } finally {
+    await app.close();
+  }
+});

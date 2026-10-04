@@ -43,8 +43,29 @@ at LAN IP 192.168.1.200, intercepts `*.vtuner.com` DNS) serves it to the receive
   (`MyStationsAutoRefreshPeriod=1`) → appears on receiver within ~1 min.
 - Config (env): `YTUNER_STATIONS_FILE` (default local `stations.local.ini`),
   `YTUNER_STATIONS_CATEGORY` (default `Julien`), `RADIO_BROWSER_BASE`.
+- Play: each My Stations row has **▶ Play** (the whole row is tappable) → `POST /api/radio/play`
+  → `lib/radioNavigator.js` drives the menu over telnet: `SIIRADIO` if needed, Back (`NS92`)
+  until the top iRadio menu, then My Stations → category → station → OK (`NS94`), until the
+  screen title is "Now Playing". The protocol has no "play this URL"; this is the only way.
+  Needs telnet (503 otherwise); one navigation at a time (409).
 - Tests: `npm test` (node:test unit + integration), `npm run test:e2e` (Playwright browser
   E2E; `playwright` is a devDependency, excluded from the image by `npm ci --production`).
+  `test/helpers/fakeReceiver.js` simulates the iRadio menu as observed on the real unit.
+
+### Receiver display (NSE lines) — observed on the RCD-N9, 2026-10-04
+
+- Info byte on lines 1-8: `0x01` station, `0x02` folder, `0x08` cursor, `0x20` information
+  only (Now Playing text, the `[ n/m ]` page indicator on line 8). The protocol PDF calls
+  `0x02` "playable", but stations carry `0x01`. `lib/nseScreen.js` and `handleDisplay()` in
+  the page share these rules.
+- The receiver **pushes the whole screen** after every cursor move, Back and OK. Back at the
+  top menu does nothing and pushes nothing.
+- Opening a folder first shows `---- empty ----` while yTuner loads it. **A key pressed during
+  loading leaves the menu stuck on "empty"** (Back + OK again recovers): always wait for the
+  loaded screen before the next key.
+- The HTTP API names the iRadio input `NET`; telnet says `IRADIO`. While telnet is connected
+  HTTP poll results are ignored (`lib/httpStatus.js`), otherwise a late poll overwrote
+  `IRADIO` with `NET` and the page hid the display.
 
 ## Key Files
 
@@ -53,7 +74,10 @@ at LAN IP 192.168.1.200, intercepts `*.vtuner.com` DNS) serves it to the receive
 - `lib/DenonClient.js` — Telnet wrapper (TCP port 23). `connect()` returns a Promise that only resolves on success, never rejects — connection errors go to the `error` event handler
 - `lib/stations.js` — pure yTuner `stations.ini` parse/serialize/add/remove + atomic, mutex-guarded file I/O
 - `lib/radiobrowser.js` — radio-browser.info search + result mapping
-- `lib/radioRoutes.js` — injectable REST router: `GET /search`, `POST /add`, `GET /mystations`, `DELETE /remove`
+- `lib/radioRoutes.js` — injectable REST router: `GET /search`, `POST /add`, `GET /mystations`, `DELETE /remove`, `POST /play`
+- `lib/radioNavigator.js` — plays a My Stations entry by walking the iRadio menu over telnet
+- `lib/nseScreen.js` — assembles NSE0..NSE8 lines into a screen (title, items, cursor, page, loading)
+- `lib/httpStatus.js` — parses the HTTP status XML; ignores it while telnet is connected
 
 ## Denon HTTP API
 
@@ -87,7 +111,7 @@ Deployed on Synology NAS via `misc.yml` Docker stack, accessible at `denon.ju.fr
 # Copy updated files to NAS (include lib/*.js when they change)
 scp -O server.js package.json package-lock.json julien@nas.local:/volume2/docker/denon-remote/
 scp -O public/index.html julien@nas.local:/volume2/docker/denon-remote/public/index.html
-scp -O lib/stations.js lib/radiobrowser.js lib/radioRoutes.js julien@nas.local:/volume2/docker/denon-remote/lib/
+scp -O lib/*.js julien@nas.local:/volume2/docker/denon-remote/lib/
 # Rebuild and restart
 ssh julien@nas.local "docker compose -f /volume2/docker/misc.yml build denon-remote && docker compose -f /volume2/docker/misc.yml up -d denon-remote"
 ```
@@ -111,8 +135,11 @@ denon-remote:
     - YTUNER_STATIONS_CATEGORY=Julien
 ```
 
-yTuner side: `/volume2/docker/ytuner/ytuner.ini` must have `MyStationsAutoRefreshPeriod=1`
-so it reloads `stations.ini` (restart the `ytuner` container after changing the ini).
+yTuner side: `/volume2/docker/ytuner/ytuner.ini` must have, under `[MyStations]`,
+**`Enable=1`** (without it the receiver's menu has no "My Stations" at all — it was `0` until
+2026-10-04) and `MyStationsAutoRefreshPeriod=1` so it reloads `stations.ini`. Restart the
+`ytuner` container after changing the ini. `ytuner.ini`, `config/avr.ini` (menu items) and
+`config/stations.ini` are versioned in the NAS's `/volume2/docker` git repo.
 
 ### DNS & Reverse Proxy
 
