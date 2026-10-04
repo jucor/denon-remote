@@ -1230,7 +1230,9 @@ function renderRadioMine(stations) {
   document.getElementById('radio-mine-title').style.display = list.length ? '' : 'none';
   el.innerHTML = '';
   for (const s of list) {
-    const row = radioRow('radio-mine', s, s.category || '',
+    // Geo-blocked stations are saved as the relay's address (played through the NAS's VPN).
+    const viaVpn = /\/api\/radio\/stream\/u\?url=/.test(s.url || '');
+    const row = radioRow('radio-mine', s, (s.category || '') + (viaVpn ? ' · via VPN' : ''),
       '<button class="radio-play" title="Play on the receiver">▶ Play</button>' +
       '<button class="radio-remove" title="Remove from My Stations">×</button>');
     const playBtn = row.querySelector('.radio-play');

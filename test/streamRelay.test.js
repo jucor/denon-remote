@@ -2,6 +2,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
 const express = require('express');
 const { createStreamRelay } = require('../lib/streamRelay');
 
@@ -214,4 +216,133 @@ test('when the receiver hangs up, onEnd reports the stream id', async () => {
     for (let i = 0; i < 50 && !ended.length; i++) await new Promise((r) => setTimeout(r, 10));
     assert.deepEqual(ended, [id]);
   } finally { await app.close(); await up.close(); }
+});
+
+// --- Geo-blocked stations through an HTTP proxy (gluetun on the NAS) ---
+// Seen live: NRJ-group streams answer 403 to UK addresses and 200 through the VPN.
+
+const https = require('node:https');
+const tlsFixture = {
+  key: fs.readFileSync(path.join(__dirname, 'fixtures', 'tls', 'key.pem')),
+  cert: fs.readFileSync(path.join(__dirname, 'fixtures', 'tls', 'cert.pem')),
+};
+
+// Minimal forward proxy: absolute-URI GET (adds x-via-proxy) and CONNECT tunnels.
+async function fakeProxy() {
+  const seen = { gets: 0, connects: 0 };
+  const tunnels = new Set(); // CONNECT sockets are detached: closeAllConnections() misses them
+  const srv = http.createServer((req, res) => {
+    seen.gets++;
+    const u = new URL(req.url);
+    const up = http.get({ host: u.hostname, port: u.port, path: u.pathname + u.search, headers: { ...req.headers, 'x-via-proxy': '1' } }, (r) => {
+      res.writeHead(r.statusCode, r.headers);
+      r.pipe(res);
+    });
+    up.on('error', () => res.destroy());
+    req.on('close', () => up.destroy());
+  });
+  srv.on('connect', (req, sock, head) => {
+    seen.connects++;
+    tunnels.add(sock);
+    const [host, port] = req.url.split(':');
+    // (the test servers listen on 127.0.0.1 only; 'localhost' may resolve to ::1)
+    const up = require('node:net').connect(Number(port), host === 'localhost' ? '127.0.0.1' : host, () => {
+      sock.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      up.write(head);
+      up.pipe(sock); sock.pipe(up);
+    });
+    tunnels.add(up);
+    up.on('error', () => sock.destroy()); sock.on('error', () => up.destroy());
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  return {
+    seen, url: `http://127.0.0.1:${srv.address().port}`,
+    close: () => { for (const t of tunnels) t.destroy(); srv.closeAllConnections(); return new Promise((r) => srv.close(r)); },
+  };
+}
+
+function audioHandler(isAllowed) {
+  return (req, res) => {
+    if (!isAllowed(req)) { res.writeHead(403, { 'Content-Type': 'text/plain' }); return res.end(); }
+    res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
+    const t = setInterval(() => res.write(Buffer.alloc(8, 67)), 5);
+    req.on('close', () => clearInterval(t));
+  };
+}
+
+test('a stream that refuses us (403) plays through the proxy; the host is then proxied directly', async () => {
+  let direct = 0;
+  const up = http.createServer(audioHandler((req) => { if (req.headers['x-via-proxy']) return true; direct++; return false; }));
+  await new Promise((r) => up.listen(0, '127.0.0.1', r));
+  const proxy = await fakeProxy();
+  const app = await relayApp({ proxyUrl: proxy.url });
+  try {
+    for (let i = 0; i < 2; i++) {
+      const id = app.relay.register({ url: `http://127.0.0.1:${up.address().port}/live`, name: 'NRJ' });
+      const { status, body } = await readBytes(`${app.base}/stream/${id}`, 16);
+      assert.equal(status, 200);
+      assert.equal(body.length, 16);
+    }
+    assert.equal(direct, 1, 'second time it must go straight through the proxy');
+    assert.equal(proxy.seen.gets, 2);
+  } finally { await app.close(); await proxy.close(); up.closeAllConnections(); await new Promise((r) => up.close(r)); }
+});
+
+test('an HTTPS stream that refuses us goes through a CONNECT tunnel, certificate still verified', async () => {
+  let n = 0;
+  const up = https.createServer(tlsFixture, audioHandler(() => n++ > 0)); // first (direct) request refused
+  await new Promise((r) => up.listen(0, '127.0.0.1', r));
+  const proxy = await fakeProxy();
+  const app = await relayApp({ proxyUrl: proxy.url, tlsCa: tlsFixture.cert });
+  try {
+    const id = app.relay.register({ url: `https://localhost:${up.address().port}/live`, name: 'NRJ' });
+    const { status, body } = await readBytes(`${app.base}/stream/${id}`, 16);
+    assert.equal(status, 200);
+    assert.equal(body.length, 16);
+    assert.equal(proxy.seen.connects, 1);
+  } finally { await app.close(); await proxy.close(); up.closeAllConnections(); await new Promise((r) => up.close(r)); }
+});
+
+test('without a proxy configured, a refused stream is still a 502', async () => {
+  const up = http.createServer(audioHandler(() => false));
+  await new Promise((r) => up.listen(0, '127.0.0.1', r));
+  const app = await relayApp({});
+  try {
+    const id = app.relay.register({ url: `http://127.0.0.1:${up.address().port}/live`, name: 'x' });
+    assert.equal((await readBytes(`${app.base}/stream/${id}`, 1)).status, 502);
+  } finally { await app.close(); up.closeAllConnections(); await new Promise((r) => up.close(r)); }
+});
+
+// --- Saved stations: a stable relay address for entries in stations.ini / bookmark.xml ---
+
+test('the saved-station route relays only URLs the allow-list accepts', async () => {
+  const up = await upstream();
+  const allowed = new Set([`${up.base}/icy`]);
+  const relay = createStreamRelay({ allowPrivateHosts: true, isSavedUrl: async (u) => allowed.has(u) });
+  const app = express();
+  app.get('/stream/u', relay.savedHandler);
+  const srv = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    const ok = await readBytes(`${base}/stream/u?url=${encodeURIComponent(`${up.base}/icy`)}`, 16);
+    assert.equal(ok.status, 200);
+    const no = await readBytes(`${base}/stream/u?url=${encodeURIComponent('http://example.com/other')}`, 1);
+    assert.equal(no.status, 404);
+    assert.equal((await readBytes(`${base}/stream/u`, 1)).status, 404);
+  } finally { srv.closeAllConnections(); await new Promise((r) => srv.close(r)); await up.close(); }
+});
+
+test('probe() tells a geo-blocked stream (refused direct, fine via proxy) from a dead one', async () => {
+  const blocked = http.createServer(audioHandler((req) => !!req.headers['x-via-proxy']));
+  const dead = http.createServer(audioHandler(() => false));
+  await Promise.all([blocked, dead].map((s) => new Promise((r) => s.listen(0, '127.0.0.1', r))));
+  const proxy = await fakeProxy();
+  const relay = createStreamRelay({ allowPrivateHosts: true, proxyUrl: proxy.url });
+  try {
+    assert.deepEqual(await relay.probe(`http://127.0.0.1:${blocked.address().port}/`), { direct: false, viaProxy: true });
+    assert.deepEqual(await relay.probe(`http://127.0.0.1:${dead.address().port}/`), { direct: false, viaProxy: false });
+  } finally {
+    await proxy.close();
+    for (const s of [blocked, dead]) { s.closeAllConnections(); await new Promise((r) => s.close(r)); }
+  }
 });

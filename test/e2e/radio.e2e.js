@@ -331,3 +331,15 @@ test('phone width: search rows keep the station name readable; buttons never ove
     await close();
   }
 });
+
+test('My Stations: entries played through the VPN relay say so (browser E2E)', async () => {
+  const text = '[Julien]\nRire et Chansons=http://192.168.1.61:3002/api/radio/stream/u?url=https%3A%2F%2Fstreaming.nrjaudio.fm%2Fou8o8xgk7oiu\nFIP=http://icecast.radiofrance.fr/fip.aac\n';
+  const { page, close } = await boot({ stationsText: text });
+  try {
+    await page.waitForSelector('#radio-mystations .radio-mine');
+    assert.deepEqual(await page.$$eval('#radio-mystations .radio-mine .radio-sub', (els) => els.map((e) => e.textContent.trim())),
+      ['Julien · via VPN', 'Julien']);
+  } finally {
+    await close();
+  }
+});

@@ -125,3 +125,23 @@ test('without bookmarksFile the favourites endpoints answer 501, other routes un
     assert.equal((await fetch(`${app.base}/mystations`)).status, 200);
   } finally { await app.close(); }
 });
+
+test('POST /favourites stores the address prepareUrl returns (relay for geo-blocked stations)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fav-geo-'));
+  const bookmarksFile = path.join(dir, 'bookmark.xml');
+  const app = await startApp({
+    stationsFile: path.join(dir, 'stations.ini'), bookmarksFile,
+    prepareUrl: async (u) => `http://nas:3002/api/radio/stream/u?url=${encodeURIComponent(u)}`,
+  });
+  try {
+    const res = await fetch(`${app.base}/favourites`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Rire et Chansons', url: 'https://streaming.nrjaudio.fm/ou8o8xgk7oiu' }),
+    });
+    assert.equal(res.status, 200);
+    assert.match(fs.readFileSync(bookmarksFile, 'utf8'),
+      /<StationUrl>http:\/\/nas:3002\/api\/radio\/stream\/u\?url=https%3A%2F%2Fstreaming\.nrjaudio\.fm%2Fou8o8xgk7oiu<\/StationUrl>/);
+  } finally {
+    await app.close();
+  }
+});

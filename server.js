@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { WebSocketServer } = require('ws');
 const path = require('path');
+const fs = require('fs');
 const DenonClient = require('./lib/DenonClient');
 const { discover } = require('./lib/discovery');
 const { createRadioRouter } = require('./lib/radioRoutes');
@@ -68,6 +69,7 @@ app.use(
     listCountries: () => listCountries({ base: radioBrowserBase }),
     play: playOnReceiver,
     playNow: playNowOnReceiver,
+    prepareUrl: savedAddressFor,
   })
 );
 
@@ -83,7 +85,35 @@ function clearStreamNow() {
   streamNowId = null;
   broadcast({ type: 'streamTitle', value: null });
 }
+// Geo-blocked stations (seen live: NRJ refuses UK addresses) are fetched through this HTTP
+// proxy — gluetun's on the *arr network, whose VPN exit is abroad: GEO_PROXY=http://gluetun:8888
+const geoProxy = process.env.GEO_PROXY || '';
+const savedPath = (url) => `/api/radio/stream/u?url=${encodeURIComponent(url)}`;
+
+// The saved-station route serves only stream URLs whose relay address is in stations.ini or
+// bookmark.xml (so it is not an open proxy).
+async function isSavedUrl(url) {
+  const needle = savedPath(url);
+  for (const file of [stationsFile, bookmarksFile]) {
+    try {
+      if ((await fs.promises.readFile(file, 'utf8')).includes(needle)) return true;
+    } catch (e) { /* missing file */ }
+  }
+  return false;
+}
+
+// Address to save for a new My Stations / Favourites entry: the relay's when the stream
+// refuses us directly but plays through the proxy, so the receiver's own menus work too.
+async function savedAddressFor(url) {
+  if (!geoProxy || !relayBase) return url;
+  const { viaProxy } = await relay.probe(url);
+  if (viaProxy) console.log(`Geo-blocked, saved via the relay: ${url}`);
+  return viaProxy ? `${relayBase}${savedPath(url)}` : url;
+}
+
 const relay = createStreamRelay({
+  proxyUrl: geoProxy,
+  isSavedUrl,
   onTitle: ({ id, name, title }) => {
     if (id !== streamNowId) return; // an older stream still winding down
     streamNow = { name, title };
@@ -91,6 +121,7 @@ const relay = createStreamRelay({
   },
   onEnd: (id) => { if (id === streamNowId) clearStreamNow(); },
 });
+app.get('/api/radio/stream/u', relay.savedHandler); // before /:id, which would catch "u"
 app.get('/api/radio/stream/:id', relay.handler);
 
 async function playNowOnReceiver({ name, url, codec }) {

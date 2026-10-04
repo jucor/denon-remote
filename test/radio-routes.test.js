@@ -269,3 +269,23 @@ test('POST /play passes a menu path (e.g. Favourites) through to the player', as
     await app.close();
   }
 });
+
+// Geo-blocked stations (e.g. NRJ from the UK): the address saved is the relay's, so the
+// receiver's own menus play them through the NAS's VPN.
+test('POST /add stores the address prepareUrl returns (relay for geo-blocked stations)', async () => {
+  const file = tmpFile();
+  const app = await startApp({
+    stationsFile: file, category: 'Julien',
+    prepareUrl: async (u) => (u.includes('nrj') ? `http://nas:3002/api/radio/stream/u?url=${encodeURIComponent(u)}` : u),
+  });
+  try {
+    for (const [name, url] of [['Rire et Chansons', 'https://streaming.nrjaudio.fm/ou8o8xgk7oiu'], ['FIP', 'http://icecast.radiofrance.fr/fip.aac']]) {
+      await fetch(`${app.base}/api/radio/add`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, url }) });
+    }
+    const text = fs.readFileSync(file, 'utf8');
+    assert.match(text, /Rire et Chansons=http:\/\/nas:3002\/api\/radio\/stream\/u\?url=https%3A%2F%2Fstreaming\.nrjaudio\.fm%2Fou8o8xgk7oiu/);
+    assert.match(text, /FIP=http:\/\/icecast\.radiofrance\.fr\/fip\.aac/);
+  } finally {
+    await app.close();
+  }
+});
