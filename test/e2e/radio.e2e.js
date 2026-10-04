@@ -225,3 +225,29 @@ test('Receiver display: tappable rows are keyboard buttons (Tab + Enter) (browse
     await close();
   }
 });
+
+test('a11y: Play buttons are named per station; status lines are announced (browser E2E)', async () => {
+  const { page, close } = await boot({ stationsText: TWO_STATIONS, play: async () => {} });
+  try {
+    await page.waitForSelector('#radio-mystations .radio-mine');
+    assert.deepEqual(await page.$$eval('.radio-play', (els) => els.map((e) => e.getAttribute('aria-label'))),
+      ['Play Big R Radio - 80s Metal FM', 'Play Exclusively Elvis Presley']);
+    assert.equal(await page.getAttribute('#radio-mine-status', 'role'), 'status');
+  } finally {
+    await close();
+  }
+});
+
+test('a11y: keyboard focus stays on the same display row when the screen refreshes (browser E2E)', async () => {
+  const { page, close } = await boot();
+  try {
+    const screen = (cursor) => ['NSE0Julien', `NSE1${cursor === 1 ? '\x09' : '\x01'}Big R`, `NSE2${cursor === 2 ? '\x09' : '\x01'}Elvis`,
+      'NSE3', 'NSE4', 'NSE5', 'NSE6', 'NSE7', 'NSE8'];
+    await page.evaluate((lines) => { window.navToLine = () => {}; updateInput('IRADIO'); lines.forEach(handleDisplay); }, screen(1));
+    await page.focus('#receiver-display .display-line.selectable:nth-of-type(3)');
+    await page.evaluate((lines) => lines.forEach(handleDisplay), screen(2));
+    assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), '▶ Elvis');
+  } finally {
+    await close();
+  }
+});

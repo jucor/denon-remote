@@ -95,3 +95,10 @@ test('the cursor flag on the page indicator or the placeholder never becomes the
   const s = assemble(['NSE0X', 'NSE1\x08---- empty ----', 'NSE2', 'NSE3', 'NSE4', 'NSE5', 'NSE6', 'NSE7', 'NSE8\x28  [ 0/0 ]']);
   assert.equal(s.cursor, -1);
 });
+
+test('no screen is emitted from lines 1-8 alone (its title line never arrived)', () => {
+  const a = new ScreenAssembler();
+  let s = null;
+  for (const l of JULIEN.slice(1)) s = a.feed(l) || s;
+  assert.equal(s, null);
+});

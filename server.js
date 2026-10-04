@@ -76,12 +76,14 @@ async function playOnReceiver(station) {
   playAbort = new AbortController();
   try {
     await playStation(station, {
-      send: sendCommand,
+      send: (cmd) => sendCommand(cmd, { fromNavigator: true }),
       onLine: (cb) => { displayLineListeners.add(cb); return () => displayLineListeners.delete(cb); },
       getInput: () => (state.input || '').toUpperCase(),
     }, { signal: playAbort.signal });
   } finally {
     playAbort = null;
+    // A tab hidden mid-selection (phone locked) asked for telnet to drop: do it now.
+    if (activeTabs <= 0 && (connected || denon)) disconnectTelnet();
   }
 }
 
@@ -106,7 +108,8 @@ let state = {
 function parseResponse(lines) {
   const events = [];
   for (const raw of lines) {
-    const line = raw.trim();
+    // Trim ASCII whitespace only: a double-encoded "à" ends in \xA0, which trim() eats.
+    const line = raw.replace(/^[ \t\n]+|[ \t\n]+$/g, '');
     if (!line) continue;
 
     if (line.startsWith('PW')) {
@@ -284,7 +287,8 @@ function onActiveTabsChanged() {
   if (activeTabs > 0 && !connected && denonHost && !telnetDisabled) {
     console.log(`Active tabs: ${activeTabs}, connecting telnet...`);
     connectDenon();
-  } else if (activeTabs <= 0 && (connected || denon)) {
+  } else if (activeTabs <= 0 && (connected || denon) && !playAbort) {
+    // (while a station is being selected, playOnReceiver disconnects when it is done)
     disconnectTelnet();
   }
   updateHttpPolling();
@@ -331,7 +335,18 @@ function applyHttpStatus(xml) {
   }
 }
 
-function sendCommand(cmd) {
+// While a station is being selected, keys that change the menu or input would derail it;
+// only the navigator may send them. Queries, NSE and volume/tone still go through.
+const MENU_CHANGING = /^(NS|SI|MN|BD)/;
+function blockedDuringPlay(cmd) {
+  return playAbort && MENU_CHANGING.test(cmd) && cmd !== 'NSE' && !cmd.endsWith('?');
+}
+
+function sendCommand(cmd, { fromNavigator = false } = {}) {
+  if (!fromNavigator && blockedDuringPlay(cmd)) {
+    broadcast({ type: 'raw', value: '! ' + cmd + ' held back: ' + BUSY_SELECTING });
+    return false;
+  }
   // When telnet is connected, use it for all commands — single path, immediate
   // feedback if the receiver hangs, no HTTP request pile-up
   if (denon && connected) {
@@ -389,7 +404,7 @@ app.post('/api/command', (req, res) => {
   const { cmd } = req.body;
   if (!cmd) return res.status(400).json({ error: 'cmd required' });
   if (!denonHost) return res.status(503).json({ error: 'No Denon host configured' });
-  if (playAbort && /^NS9/.test(String(cmd))) return res.status(409).json({ error: BUSY_SELECTING });
+  if (blockedDuringPlay(String(cmd))) return res.status(409).json({ error: BUSY_SELECTING });
   const ok = sendCommand(cmd);
   if (!ok) return res.status(503).json({ error: 'Failed to send command' });
   res.json({ ok: true, cmd });

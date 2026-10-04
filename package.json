@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "cli": "node index.js",
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "test:e2e": "node --test test/e2e/radio.e2e.js"
   },
   "bin": {

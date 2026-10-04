@@ -465,7 +465,7 @@
 
   /* Tappable rows say so without hovering: a chevron, and a ring for keyboard focus */
   .display-lines .display-line.selectable::after {
-    content: ' \203A';
+    content: ' \203A' / '';
     color: var(--text-dim);
   }
 
@@ -1031,7 +1031,7 @@
     <div id="radio-status" class="radio-status"></div>
     <div id="radio-results" class="radio-list"></div>
     <div id="radio-mine-title" class="radio-mine-title" style="display:none">On the receiver · My Stations — tap one to play it</div>
-    <div id="radio-mine-status" class="radio-status"></div>
+    <div id="radio-mine-status" class="radio-status" role="status" aria-live="polite"></div>
     <div id="radio-mystations" class="radio-list"></div>
   </div>
 
@@ -1181,6 +1181,7 @@ function renderRadioMine(stations) {
       '<button class="radio-play" title="Play on the receiver">▶ Play</button>' +
       '<button class="radio-remove" title="Remove from My Stations">×</button>');
     const playBtn = row.querySelector('.radio-play');
+    playBtn.setAttribute('aria-label', 'Play ' + s.name);
     row.onclick = () => radioPlay(s, playBtn);
     row.querySelector('.radio-remove').onclick = (ev) => { ev.stopPropagation(); radioRemove(s, ev.currentTarget); };
     el.appendChild(row);
@@ -1775,7 +1776,7 @@ function updateReceiverDisplay() {
       const cls = 'display-line' + (meta.selectable ? ' selectable' : '') + (meta.cursor ? ' cursor' : '');
       const arrow = meta.cursor ? '&#x25B6; ' : '';
       const click = meta.selectable
-        ? ' role="button" tabindex="0" onclick="navToLine(' + i + ')"' +
+        ? ' data-line="' + i + '" role="button" tabindex="0" onclick="navToLine(' + i + ')"' +
           ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();navToLine(' + i + ')}"'
         : '';
       parts.push('<div class="' + cls + '"' + click + '>' + arrow + escapeHtml(displayLines[i]) + '</div>');
@@ -1786,7 +1787,11 @@ function updateReceiverDisplay() {
       ? '<div class="display-line dim">No display data</div>'
       : '<div class="display-line dim">Receiver display requires telnet \u2014 click Connect above</div>';
   } else {
+    // Each NSE line re-renders the display: keep keyboard focus on the same row.
+    const focused = el.contains(document.activeElement) ? document.activeElement.dataset.line : null;
     el.innerHTML = parts.join('');
+    const again = focused && el.querySelector('[data-line="' + focused + '"]');
+    if (again) again.focus();
   }
 }
 

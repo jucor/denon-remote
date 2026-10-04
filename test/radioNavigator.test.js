@@ -126,3 +126,40 @@ test('gives up after an overall deadline even if every step answers', async () =
   const fake = new FakeReceiver({ stations: many(17), loadMs: 60 });
   await assert.rejects(play(fake, { name: 'Station 16' }, { timeoutMs: 400, deadlineMs: 100 }), /took too long/);
 });
+
+test('waits out a list that is loading when the play starts, instead of pressing Back on it', async () => {
+  const fake = new FakeReceiver({ path: ['My Stations'] });
+  fake.startLoading('Julien', 150);
+  await play(fake, { name: BIG_R }, { timeoutMs: 1000, scanTimeoutMs: 100, reenterMs: 10 });
+  assert.equal(fake.nowPlaying, BIG_R);
+  assert.deepEqual(fake.violations, []);
+});
+
+test('a lost screen push during the search is re-read, not taken as "not found"', async () => {
+  // Presses 5 and 7 are Downs scanning Julien (0 NSE, 1-2 Down, 3-4 OK, 5.. Down).
+  const fake = new FakeReceiver({ stations: many(12), dropPushes: [5, 7] });
+  await play(fake, { name: 'Station 11' });
+  assert.equal(fake.nowPlaying, 'Station 11');
+  assert.ok(!fake.sent.includes('SICD'), 'must not switch inputs because of a lost push');
+});
+
+test('SIIRADIO that pushes nothing (already in iRadio, input misreported) falls back to reading the display', async () => {
+  const fake = new FakeReceiver();
+  const io = { send: (c) => fake.send(c), onLine: (cb) => fake.onLine(cb), getInput: () => 'NET' };
+  try {
+    await playStation({ name: ELVIS, category: 'Julien' }, io, OPTS);
+  } finally { fake.stop(); }
+  assert.equal(fake.nowPlaying, ELVIS);
+});
+
+test('if re-entering iRadio fails after switching to CD, it switches back to iRadio', async () => {
+  const fake = new FakeReceiver({ ytunerMenu: false });
+  const io = {
+    send: (c) => { if (c === 'SIIRADIO' && fake.sent.includes('SICD') && !io.once) { io.once = true; fake.sent.push(c); return; } fake.send(c); },
+    onLine: (cb) => fake.onLine(cb), getInput: () => fake.getInput(),
+  };
+  await assert.rejects(playStation({ name: BIG_R, category: 'Julien' }, io, OPTS));
+  fake.stop();
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(fake.input, 'IRADIO', 'receiver must not be left on CD');
+});

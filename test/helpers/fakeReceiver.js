@@ -38,8 +38,9 @@ class FakeReceiver {
   constructor({
     stations = ['Big R Radio - 80s Metal FM', 'Exclusively Elvis Presley'],
     input = 'IRADIO', loadMs = 20, path = [], ytunerMenu = true, cursorAt = null,
-    nowPlayingRefreshMs = 0, encode = (s) => s, resumeStation = null,
+    nowPlayingRefreshMs = 0, encode = (s) => s, resumeStation = null, dropPushes = [],
   } = {}) {
+    this.dropPushes = new Set(dropPushes); // indexes of key presses whose screen push is lost
     this.resumeStation = resumeStation;
     this.stations = stations;
     this.input = input;
@@ -59,8 +60,26 @@ class FakeReceiver {
   // io surface used by the navigator
   send(cmd) {
     this.sent.push(cmd);
-    if (this.loading) { this.violations.push(`${cmd} sent while loading`); this.stuck = true; return; }
-    setTimeout(() => this._handle(cmd), 2);
+    // Menu keys while loading stick the menu; a display query (NSE) does not.
+    if (this.loading && cmd !== 'NSE') { this.violations.push(`${cmd} sent while loading`); this.stuck = true; return; }
+    if (this.loading) { // NSE while loading answers with the placeholder screen
+      setTimeout(() => this._emit(this._lines(this.loadingTitle, [], true)), 2);
+      return;
+    }
+    const n = this.sent.length - 1;
+    setTimeout(() => {
+      this.muted = this.dropPushes.has(n);
+      this._handle(cmd);
+      this.muted = false;
+    }, 2);
+  }
+
+  // Put the receiver mid-load, as if a person had just opened a folder.
+  startLoading(title, ms) {
+    this.loading = true;
+    this.loadingTitle = title;
+    this._emit(this._lines(title, [], true));
+    setTimeout(() => { this.loading = false; this._emitCurrent(); }, ms);
   }
   onLine(cb) { this.listeners.add(cb); return () => this.listeners.delete(cb); }
   getInput() { return this.input; }
@@ -129,6 +148,7 @@ class FakeReceiver {
         if (!child.children) { this._play(child.title); return this._emitCurrent(); }
         this.stack.push({ node: child, cursor: 0, start: 0 });
         this.loading = true;
+        this.loadingTitle = child.title;
         this._emit(this._lines(child.title, [], true));
         setTimeout(() => { this.loading = false; this._emitCurrent(); }, this.loadMs);
         return;
@@ -164,6 +184,7 @@ class FakeReceiver {
   }
 
   _emit(lines) {
+    if (this.muted) return;
     for (const l of lines) for (const cb of [...this.listeners]) cb(l);
   }
 }
