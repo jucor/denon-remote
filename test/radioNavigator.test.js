@@ -163,3 +163,12 @@ test('if re-entering iRadio fails after switching to CD, it switches back to iRa
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(fake.input, 'IRADIO', 'receiver must not be left on CD');
 });
+
+test('recovers once when a folder never finishes loading: re-enters iRadio and starts over', async () => {
+  const fake = new FakeReceiver({ stickOnOpen: 'My Stations' });
+  await play(fake, { name: ELVIS });
+  assert.equal(fake.nowPlaying, ELVIS);
+  const i = fake.sent.indexOf('SICD');
+  assert.ok(i >= 0 && fake.sent[i + 1] === 'SIIRADIO', 'expected SICD then SIIRADIO');
+  assert.equal(fake.input, 'IRADIO');
+});

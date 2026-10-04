@@ -69,6 +69,15 @@ at LAN IP 192.168.1.200, intercepts `*.vtuner.com` DNS) serves it to the receive
   / total) appears only on some screens — don't rely on it.
 - Text arrives **double-encoded** (UTF-8 read as Latin-1: "We’ll" → "Weâ\x80\x99ll");
   `fixDoubleEncoding()` repairs it on both sides.
+- The same screen is sometimes **pushed twice** in a row; each key must wait for a screen
+  that actually differs from the one before it.
+- Left idle in a menu while something plays, the receiver **returns to Now Playing on its
+  own** after a few seconds (so "Back at the top pushes nothing" is only true at first).
+- Entering iRadio from another input either shows the top menu (from CD) or **resumes the
+  last station** on Now Playing (from Media Server).
+- Seen once: a folder (My Stations) opened, yTuner served it, but the receiver stayed on
+  `---- empty ----` with nothing else pressed; Back/OK then behaved erratically. The
+  navigator recovers by re-entering iRadio (`SICD` → `SIIRADIO`) and starting over, once.
 - After another input was used (e.g. Media Server via UPnP), iRadio's top menu can come back
   with **only "Recently Played" and "Search by Keyword"** — no yTuner entries — until iRadio
   is entered again from another input (`SICD` then `SIIRADIO` makes it re-fetch from yTuner).

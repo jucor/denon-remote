@@ -12,6 +12,9 @@
 //     own entries (no yTuner items) until iRadio is entered again from another input;
 //   - entering iRadio from another input either shows the top menu (seen from CD) or
 //     resumes the last station on Now Playing (seen from Media Server): `resumeStation`;
+//   - opening a folder can, rarely, never finish loading (seen once live: My Stations stuck
+//     on "empty" with nothing else pressed); only entering iRadio afresh clears it:
+//     `stickOnOpen` = title of a folder whose first opening sticks;
 //   - selecting a station shows "Now Playing" (station on line 2), which keeps pushing
 //     refreshes while it plays.
 
@@ -39,7 +42,9 @@ class FakeReceiver {
     stations = ['Big R Radio - 80s Metal FM', 'Exclusively Elvis Presley'],
     input = 'IRADIO', loadMs = 20, path = [], ytunerMenu = true, cursorAt = null,
     nowPlayingRefreshMs = 0, encode = (s) => s, resumeStation = null, dropPushes = [],
+    stickOnOpen = null,
   } = {}) {
+    this.stickOnOpen = stickOnOpen;
     this.dropPushes = new Set(dropPushes); // indexes of key presses whose screen push is lost
     this.resumeStation = resumeStation;
     this.stations = stations;
@@ -116,7 +121,7 @@ class FakeReceiver {
   }
 
   _handle(cmd) {
-    if (this.stuck) return this._emit(this._lines('My Stations', [], true));
+    if (this.stuck && !cmd.startsWith('SI')) return this._emit(this._lines(this.loadingTitle || 'My Stations', [], true));
     const top = this._top();
     const kids = top.node.children || [];
     if (cmd.startsWith('SI')) {
@@ -125,6 +130,7 @@ class FakeReceiver {
         // Entering iRadio from another input fetches yTuner's menu again.
         this.stack = [{ node: topMenu(this.stations, true), cursor: 0, start: 0 }];
         this.input = next;
+        this.stuck = false;
         if (this.resumeStation) this._play(this.resumeStation);
         return this._emitCurrent();
       }
@@ -147,8 +153,13 @@ class FakeReceiver {
         if (!child) return;
         if (!child.children) { this._play(child.title); return this._emitCurrent(); }
         this.stack.push({ node: child, cursor: 0, start: 0 });
-        this.loading = true;
         this.loadingTitle = child.title;
+        if (this.stickOnOpen === child.title) {
+          this.stickOnOpen = null;
+          this.stuck = true; // no violation: the receiver did this on its own
+          return this._emit(this._lines(child.title, [], true));
+        }
+        this.loading = true;
         this._emit(this._lines(child.title, [], true));
         setTimeout(() => { this.loading = false; this._emitCurrent(); }, this.loadMs);
         return;
