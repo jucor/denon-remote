@@ -415,7 +415,6 @@
   @media (max-width: 600px) {
     .radio-result { flex-wrap: wrap; row-gap: 8px; }
     .radio-result .radio-meta { flex-basis: calc(100% - 38px); }
-    .radio-result .radio-meta + button { margin-left: 38px; }
   }
   .radio-mine { cursor: pointer; }
   .radio-mine:hover { outline: 1px solid var(--accent); }
@@ -1170,7 +1169,7 @@ function renderRadioResults(stations) {
   for (const s of stations) {
     const row = radioRow('radio-result', s, stationSub(s),
       '<button class="radio-playnow" title="Play on the receiver now, without adding it">▶ Play now</button>' +
-      '<button class="radio-add" title="Add to the receiver’s My Stations">+ Add</button>');
+      '<button class="radio-add" title="Add to the receiver’s My Stations list (shows there within ~1 min)">+ My Stations</button>');
     const playNowBtn = row.querySelector('.radio-playnow');
     playNowBtn.setAttribute('aria-label', 'Play ' + s.name + ' now');
     playNowBtn.onclick = (ev) => radioPlayNow(s, ev.currentTarget);
@@ -1221,7 +1220,7 @@ async function radioAdd(s, btn) {
     if (btn) btn.textContent = '✓ Added';
   } catch (e) {
     radioSetStatus('Could not add: ' + e.message, true);
-    if (btn) { btn.disabled = false; btn.textContent = '+ Add'; }
+    if (btn) { btn.disabled = false; btn.textContent = '+ My Stations'; }
   }
 }
 

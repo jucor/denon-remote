@@ -50,3 +50,15 @@ test('titles containing apostrophes are kept whole', async () => {
   const { titles } = await run(icyStream(16, [A[0]], ["Guns N' Roses - Don't Cry"]), 16, 4);
   assert.deepEqual(titles, ["Guns N' Roses - Don't Cry"]);
 });
+
+test('Latin-1 titles are decoded as Latin-1 (UTF-8 when valid)', async () => {
+  const s = new IcyStripper(4);
+  const titles = [];
+  s.on('title', (t) => titles.push(t));
+  s.resume();
+  const meta = (bytes) => { const m = Buffer.alloc(1 + 16 * 2); m[0] = 2; bytes.copy(m, 1); return m; };
+  s.write(Buffer.concat([Buffer.alloc(4), meta(Buffer.from("StreamTitle='Caf\xe9 M\xfcller';", 'latin1'))]));
+  s.write(Buffer.concat([Buffer.alloc(4), meta(Buffer.from("StreamTitle='Café Müller';", 'utf8'))]));
+  s.end();
+  assert.deepEqual(titles, ['Café Müller']);
+});

@@ -31,6 +31,8 @@ test('AAC tries the receiver\'s AAC types in turn until one is accepted (714 = w
   assert.equal(mime, 'audio/mp4');
   assert.deepEqual(f.tried.map((t) => t.mime), mimeCandidates('AAC+').slice(0, mimeCandidates('AAC+').indexOf('audio/mp4') + 1));
   assert.equal(f.registered.at(-1).contentType, 'audio/mp4');
+  // The id registered last (the accepted type) is the one in the URI the receiver got.
+  assert.equal(f.tried.at(-1).uri, `http://nas:3002/api/radio/stream/id${f.registered.length}`);
 });
 
 test('an error other than a MIME refusal is not retried', async () => {

@@ -190,7 +190,7 @@
   }
 
   // --- "☆ Favourite" on search results ---
-  const ADD_LABEL = '☆ Favourite';
+  const ADD_LABEL = '☆ Favourites';
   const IN_LABEL = '★ In Favourites';
 
   function decorateResults() {
@@ -220,6 +220,13 @@
     }
   }
 
+  // Outcomes of buttons on search results go to the status line just above the results
+  // (where Play now and + My Stations report), not to this list far below them.
+  function resultStatus(msg, isError) {
+    if (typeof window.radioSetStatus === 'function') window.radioSetStatus(msg, isError);
+    else setStatus(msg, isError);
+  }
+
   async function add(station, btn) {
     btn.disabled = true;
     btn.textContent = '…';
@@ -233,11 +240,11 @@
       btn.dataset.favId = body.id;
       btn.textContent = IN_LABEL;
       btn.disabled = true;
-      setStatus(body.added
+      resultStatus(body.added
         ? 'Added “' + station.name + '” to Favourites — it is on the receiver’s Favourites menu right away'
         : '“' + station.name + '” is already in Favourites');
     } catch (e) {
-      setStatus('Could not add to Favourites: ' + e.message, true);
+      resultStatus('Could not add to Favourites: ' + e.message, true);
       btn.textContent = ADD_LABEL;
       btn.disabled = false;
     }

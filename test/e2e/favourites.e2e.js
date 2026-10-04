@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end: the "On the receiver · Favourites" list and the "☆ Favourite" button on
+// End-to-end: the "On the receiver · Favourites" list and the "☆ Favourites" button on
 // search results, driven in a real browser against the real radio router (only
 // radio-browser.info and the receiver's play are stubbed).
 
@@ -128,21 +128,21 @@ test('Favourites: × removes a favourite from the list and from bookmark.xml; th
   } finally { await close(); }
 });
 
-test('Favourites: every search result gets a "☆ Favourite" button that adds it (browser E2E)', async () => {
+test('Favourites: every search result gets a "☆ Favourites" button that adds it (browser E2E)', async () => {
   const { page, bookmarksFile, close } = await boot();
   try {
     await page.fill('#radio-q', 'jazz');
     await page.click('#radio-search-btn');
     await page.waitForSelector('#radio-results .radio-result .fav-add');
     assert.deepEqual(await page.$$eval('#radio-results .radio-result .fav-add', (els) => els.map((e) => [e.tagName, e.textContent.trim()])),
-      [['BUTTON', '☆ Favourite'], ['BUTTON', '☆ Favourite']]);
+      [['BUTTON', '☆ Favourites'], ['BUTTON', '☆ Favourites']]);
     // The existing "+ Add" button is still there, untouched.
     assert.equal(await page.$$eval('#radio-results .radio-add', (els) => els.length), 2);
 
     await page.click('#radio-results .radio-result:first-child .fav-add');
     await page.waitForSelector('#radio-favourites .fav-row');
     assert.deepEqual(await names(page), ['FIP Jazz']);
-    assert.match(await status(page), /Added “FIP Jazz” to Favourites/);
+    assert.match(await page.textContent('#radio-status'), /Added “FIP Jazz” to Favourites/);
     assert.equal(await page.textContent('#radio-results .radio-result:first-child .fav-add'), '★ In Favourites');
     assert.equal(await page.isDisabled('#radio-results .radio-result:first-child .fav-add'), true);
 
@@ -165,7 +165,7 @@ test('Favourites: adding the same station twice says it is already there (browse
     await page.click('#radio-search-btn');
     await page.waitForSelector('#radio-results .fav-add');
     await page.click('#radio-results .radio-result:first-child .fav-add');
-    await page.waitForFunction(() => /already/.test(document.getElementById('radio-fav-status').textContent));
+    await page.waitForFunction(() => /already/.test(document.getElementById('radio-status').textContent));
     assert.deepEqual(await names(page), ['FIP Jazz']);
   } finally { await close(); }
 });
@@ -180,9 +180,9 @@ test('Favourites: a refused add shows the reason and keeps the button usable (br
       ? route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'Favourites are full (100 at most)' }) })
       : route.continue());
     await page.click('#radio-results .radio-result:first-child .fav-add');
-    await page.waitForFunction(() => /full/.test(document.getElementById('radio-fav-status').textContent));
-    assert.match(await page.getAttribute('#radio-fav-status', 'class'), /error/);
-    assert.equal(await page.textContent('#radio-results .radio-result:first-child .fav-add'), '☆ Favourite');
+    await page.waitForFunction(() => /full/.test(document.getElementById('radio-status').textContent));
+    assert.match(await page.getAttribute('#radio-status', 'class'), /error/);
+    assert.equal(await page.textContent('#radio-results .radio-result:first-child .fav-add'), '☆ Favourites');
     assert.equal(await page.isDisabled('#radio-results .radio-result:first-child .fav-add'), false);
   } finally { await close(); }
 });

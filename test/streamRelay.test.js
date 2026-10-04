@@ -164,3 +164,54 @@ test('isPublicHost classifies addresses and resolved names', async () => {
     assert.equal(await isPublicHost(h), true, h);
   }
 });
+
+// Review finding: a playlist that drips bytes, or overflows the cap, never settled.
+test('a playlist that never finishes, or is too big, answers 502 instead of hanging', async () => {
+  const srv = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'audio/x-mpegurl' });
+    if (req.url === '/drip.m3u') { const t = setInterval(() => res.write('#'), 50); req.on('close', () => clearInterval(t)); return; }
+    res.end('#'.repeat(70000)); // over the 64 KiB cap, no URL
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const app = await relayApp({ bodyTimeoutMs: 300 });
+  try {
+    for (const p of ['/drip.m3u', '/big.m3u']) {
+      const id = app.relay.register({ url: `http://127.0.0.1:${srv.address().port}${p}`, name: p });
+      const t0 = Date.now();
+      const { status } = await readBytes(`${app.base}/stream/${id}`, 1);
+      assert.equal(status, 502, p);
+      assert.ok(Date.now() - t0 < 2000, `${p} took ${Date.now() - t0} ms`);
+    }
+  } finally { await app.close(); srv.closeAllConnections(); await new Promise((r) => srv.close(r)); }
+});
+
+test('an old Shoutcast server answering "ICY 200 OK" is relayed', async () => {
+  const net = require('node:net');
+  const srv = net.createServer((sock) => {
+    sock.once('data', () => {
+      sock.write('ICY 200 OK\r\ncontent-type: audio/mpeg\r\n\r\n');
+      const t = setInterval(() => sock.write(Buffer.alloc(16, 66)), 10);
+      sock.on('close', () => clearInterval(t)); sock.on('error', () => clearInterval(t));
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const app = await relayApp({});
+  try {
+    const id = app.relay.register({ url: `http://127.0.0.1:${srv.address().port}/`, name: 'old' });
+    const { status, body } = await readBytes(`${app.base}/stream/${id}`, 32);
+    assert.equal(status, 200);
+    assert.equal(body.length, 32);
+  } finally { await app.close(); await new Promise((r) => srv.close(r)); }
+});
+
+test('when the receiver hangs up, onEnd reports the stream id', async () => {
+  const up = await upstream();
+  const ended = [];
+  const app = await relayApp({ onEnd: (id) => ended.push(id) });
+  try {
+    const id = app.relay.register({ url: `${up.base}/icy`, name: 'x' });
+    await readBytes(`${app.base}/stream/${id}`, 16);
+    for (let i = 0; i < 50 && !ended.length; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(ended, [id]);
+  } finally { await app.close(); await up.close(); }
+});

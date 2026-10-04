@@ -76,11 +76,20 @@ app.use(
 // server's address as seen from the receiver's LAN (e.g. http://192.168.1.61:3002).
 const relayBase = (process.env.RELAY_BASE || '').replace(/\/$/, '');
 let streamNow = null; // { name, title } of the current Play now stream, for new tabs
+let streamNowId = null; // relay id of the current Play now stream
+function clearStreamNow() {
+  if (!streamNow) return;
+  streamNow = null;
+  streamNowId = null;
+  broadcast({ type: 'streamTitle', value: null });
+}
 const relay = createStreamRelay({
-  onTitle: ({ name, title }) => {
+  onTitle: ({ id, name, title }) => {
+    if (id !== streamNowId) return; // an older stream still winding down
     streamNow = { name, title };
     broadcast({ type: 'streamTitle', value: streamNow });
   },
+  onEnd: (id) => { if (id === streamNowId) clearStreamNow(); },
 });
 app.get('/api/radio/stream/:id', relay.handler);
 
@@ -92,7 +101,10 @@ async function playNowOnReceiver({ name, url, codec }) {
   }
   if (!denonHost) throw Object.assign(new Error('No Denon host configured'), { status: 503 });
   const controlUrl = process.env.UPNP_AVTRANSPORT_URL || `http://${denonHost}:8080/AVTransport/ctrl`;
-  const mime = await playStreamOnRenderer({ relay, relayBase, controlUrl, name, url, codec, playUri: upnp.playUri });
+  const mime = await playStreamOnRenderer({
+    relay, relayBase, controlUrl, name, url, codec, playUri: upnp.playUri,
+    onRegistered: (id) => { streamNowId = id; },
+  });
   console.log(`Play now: ${name} as ${mime}`);
   streamNow = { name, title: '' };
   broadcast({ type: 'streamTitle', value: streamNow });
@@ -104,6 +116,7 @@ const displayLineListeners = new Set();
 let playAbort = null; // AbortController of the navigation in progress, if any
 const BUSY_SELECTING = 'Selecting a station on the receiver — wait a few seconds';
 async function playOnReceiver(station) {
+  clearStreamNow(); // a menu station replaces any Play now stream
   if (!connected) {
     const err = new Error('Needs the telnet connection — press Connect at the top, then try again');
     err.status = 503;

@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "cli": "node index.js",
-    "test": "node --test test/*.test.js",
-    "test:e2e": "node --test test/e2e/*.e2e.js"
+    "test": "node --test --test-timeout=30000 test/*.test.js",
+    "test:e2e": "node --test --test-timeout=60000 --test-force-exit test/e2e/*.e2e.js"
   },
   "bin": {
     "denon": "index.js"

@@ -268,3 +268,19 @@ test('concurrent add + remove stay consistent', async () => {
   ]);
   assert.deepEqual(bookmarks.list(file).map((i) => i.name), ['New']);
 });
+
+// Review finding: a control character anywhere (not just the name) made invalid XML 1.0,
+// and yTuner's ReadXMLFile would then 404 the whole Favourites menu.
+test('characters XML 1.0 forbids never reach the file, in any field', () => {
+  const xml = bookmarks.serialise([bookmarks.buildItem({
+    name: 'Bad\u0001Name￾', url: 'http://example.com/a\u0001b\u007Fc',
+    favicon: 'http://example.com/i\u0002.png', genre: 'jazz\u0003\uD800', country: 'Fr\u0085ance',
+  })]);
+  assert.doesNotMatch(xml, /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F￾￿]/);
+  assert.doesNotMatch(xml, /[\uD800-\uDFFF]/);
+});
+
+test('non-ASCII in a stream URL is percent-encoded, keeping it a valid URL', () => {
+  const item = bookmarks.buildItem({ name: 'Café', url: 'http://example.com/café stream.mp3' });
+  assert.match(bookmarks.serialise([item]), /<StationUrl>http:\/\/example\.com\/caf%C3%A9%20stream\.mp3<\/StationUrl>/);
+});

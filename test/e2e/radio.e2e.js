@@ -261,6 +261,8 @@ test('Play now: every search result has a visible Play now button that plays it 
     await page.waitForSelector('#radio-results .radio-result');
     assert.deepEqual(await page.$$eval('#radio-results .radio-playnow', (els) => els.map((e) => [e.textContent.trim(), e.getAttribute('aria-label')])),
       [['▶ Play now', 'Play FIP Jazz now'], ['▶ Play now', 'Play Radio Nova now']]);
+    assert.deepEqual(await page.$$eval('#radio-results .radio-add', (els) => els.map((e) => e.textContent.trim())),
+      ['+ My Stations', '+ My Stations']);
     await page.click('#radio-results .radio-result:nth-child(2) .radio-playnow');
     await page.waitForFunction(() => /^Playing “Radio Nova”/.test(document.getElementById('radio-status').textContent));
     assert.deepEqual(calls, [{ name: 'Radio Nova', url: 'http://cdn/nova.mp3', codec: 'AAC' }]);
@@ -292,6 +294,8 @@ test('Play now: the now-playing strip shows the station and the current song (br
     assert.equal((await page.textContent('#radio-now')).trim(), 'Now playing · Radio Paradise');
     await page.evaluate(() => handleStreamTitle({ name: 'Radio Paradise', title: 'Uche Yara – Bodyscanner' }));
     assert.equal((await page.textContent('#radio-now')).trim(), 'Now playing · Radio Paradise — Uche Yara – Bodyscanner');
+    await page.evaluate(() => handleStreamTitle(null)); // stream ended / another source chosen
+    assert.equal(await page.isVisible('#radio-now'), false);
   } finally {
     await close();
   }
@@ -300,7 +304,7 @@ test('Play now: the now-playing strip shows the station and the current song (br
 test('phone width: search rows keep the station name readable; buttons never overlap it (browser E2E)', async () => {
   const { page, close } = await boot({ playNow: async () => {} });
   try {
-    await page.setViewportSize({ width: 390, height: 900 });
+    await page.setViewportSize({ width: 360, height: 900 });
     await page.fill('#radio-q', 'jazz');
     await page.click('#radio-search-btn');
     await page.waitForSelector('#radio-results .radio-result .radio-playnow');
@@ -312,11 +316,16 @@ test('phone width: search rows keep the station name readable; buttons never ove
         const q = b.getBoundingClientRect();
         return q.left < meta.right && q.right > meta.left && q.top < meta.bottom && q.bottom > meta.top;
       });
-      return { metaShare: meta.width / r.width, overlaps };
+      const lefts = [...row.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().left));
+      const tops = [...row.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top));
+      // every button that starts a new line starts at the same x as the first one
+      const lineStarts = lefts.filter((_, i) => i === 0 || tops[i] > tops[i - 1] + 10); // >10 px = a new line
+      return { metaShare: meta.width / r.width, overlaps, buttonsAligned: new Set(lineStarts).size <= 1 };
     }));
     for (const row of rows) {
       assert.ok(row.metaShare > 0.6, `name area too narrow: ${Math.round(row.metaShare * 100)}% of the row`);
       assert.equal(row.overlaps, false, 'a button overlaps the station name');
+      assert.equal(row.buttonsAligned, true, 'wrapped buttons must line up on the left');
     }
   } finally {
     await close();
