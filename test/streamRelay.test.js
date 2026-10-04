@@ -229,7 +229,7 @@ const tlsFixture = {
 
 // Minimal forward proxy: absolute-URI GET (adds x-via-proxy) and CONNECT tunnels.
 async function fakeProxy() {
-  const seen = { gets: 0, connects: 0 };
+  const seen = { gets: 0, connects: 0, tunnelPorts: new Set() }; // local ports of tunnel legs
   const tunnels = new Set(); // CONNECT sockets are detached: closeAllConnections() misses them
   const srv = http.createServer((req, res) => {
     seen.gets++;
@@ -247,6 +247,7 @@ async function fakeProxy() {
     const [host, port] = req.url.split(':');
     // (the test servers listen on 127.0.0.1 only; 'localhost' may resolve to ::1)
     const up = require('node:net').connect(Number(port), host === 'localhost' ? '127.0.0.1' : host, () => {
+      seen.tunnelPorts.add(up.localPort);
       sock.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       up.write(head);
       up.pipe(sock); sock.pipe(up);
@@ -289,10 +290,12 @@ test('a stream that refuses us (403) plays through the proxy; the host is then p
 });
 
 test('an HTTPS stream that refuses us goes through a CONNECT tunnel, certificate still verified', async () => {
-  let n = 0;
-  const up = https.createServer(tlsFixture, audioHandler(() => n++ > 0)); // first (direct) request refused
+  // Seen live: the tunnel was opened but Node sent the request over a NEW direct connection
+  // (UK egress, 403 again). The upstream only accepts connections arriving via the tunnel.
+  let proxy;
+  const up = https.createServer(tlsFixture, audioHandler((req) => proxy.seen.tunnelPorts.has(req.socket.remotePort)));
   await new Promise((r) => up.listen(0, '127.0.0.1', r));
-  const proxy = await fakeProxy();
+  proxy = await fakeProxy();
   const app = await relayApp({ proxyUrl: proxy.url, tlsCa: tlsFixture.cert });
   try {
     const id = app.relay.register({ url: `https://localhost:${up.address().port}/live`, name: 'NRJ' });
@@ -345,4 +348,28 @@ test('probe() tells a geo-blocked stream (refused direct, fine via proxy) from a
     await proxy.close();
     for (const s of [blocked, dead]) { s.closeAllConnections(); await new Promise((r) => s.close(r)); }
   }
+});
+
+// Security review: the relay copied the upstream Content-Type, so a "station" serving HTML
+// would be rendered on the remote's own origin (stored XSS). Only audio passes, never sniffed.
+test('only audio is relayed; responses are never sniffed or rendered as a page', async () => {
+  const srv = http.createServer((req, res) => {
+    if (req.url === '/html') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<script>alert(1)</script>'); }
+    res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
+    const t = setInterval(() => res.write(Buffer.alloc(8, 65)), 5);
+    req.on('close', () => clearInterval(t));
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const app = await relayApp({});
+  try {
+    const html = app.relay.register({ url: `http://127.0.0.1:${srv.address().port}/html`, name: 'evil' });
+    assert.equal((await readBytes(`${app.base}/stream/${html}`, 1)).status, 502);
+    const ok = app.relay.register({ url: `http://127.0.0.1:${srv.address().port}/audio`, name: 'ok' });
+    const headers = await new Promise((resolve) => {
+      const req = http.get(`${app.base}/stream/${ok}`, (res) => { resolve(res.headers); req.destroy(); });
+      req.on('error', () => {});
+    });
+    assert.equal(headers['x-content-type-options'], 'nosniff');
+    assert.match(headers['content-security-policy'] || '', /sandbox/);
+  } finally { await app.close(); srv.closeAllConnections(); await new Promise((r) => srv.close(r)); }
 });

@@ -145,3 +145,17 @@ test('POST /favourites stores the address prepareUrl returns (relay for geo-bloc
     await app.close();
   }
 });
+
+test('POST /favourites refuses a URL that points at the relay itself', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fav-relay-'));
+  const app = await startApp({ stationsFile: path.join(dir, 'stations.ini'), bookmarksFile: path.join(dir, 'bookmark.xml') });
+  try {
+    const res = await fetch(`${app.base}/favourites`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'x', url: 'http://nas:3002/api/radio/stream/u?url=http%3A%2F%2Fexample.com%2F' }),
+    });
+    assert.equal(res.status, 400);
+  } finally {
+    await app.close();
+  }
+});

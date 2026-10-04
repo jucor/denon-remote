@@ -289,3 +289,16 @@ test('POST /add stores the address prepareUrl returns (relay for geo-blocked sta
     await app.close();
   }
 });
+
+test('POST /add refuses a URL that points at the relay itself (no laundering into the allow-list)', async () => {
+  const app = await startApp({ stationsFile: tmpFile(), category: 'Julien' });
+  try {
+    const res = await fetch(`${app.base}/api/radio/add`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'x', url: 'http://192.168.1.61:3002/api/radio/stream/u?url=http%3A%2F%2Fexample.com%2F' }),
+    });
+    assert.equal(res.status, 400);
+  } finally {
+    await app.close();
+  }
+});
