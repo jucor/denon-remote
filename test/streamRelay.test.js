@@ -36,7 +36,7 @@ async function upstream() {
 }
 
 async function relayApp(opts) {
-  const relay = createStreamRelay(opts);
+  const relay = createStreamRelay({ allowPrivateHosts: true, ...opts });
   const app = express();
   app.get('/stream/:id', relay.handler);
   const srv = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
@@ -123,4 +123,43 @@ test('serves the stream with the registered content type when given (the one the
     const { type } = await readBytes(`${app.base}/stream/${id}`, 8);
     assert.equal(type, 'audio/vnd.dlna.adts');
   } finally { await app.close(); await up.close(); }
+});
+
+test('refuses a LAN/loopback stream by default, even one that answers with audio (no SSRF)', async () => {
+  const up = await upstream();
+  const relay = createStreamRelay({ connectTimeoutMs: 300 }); // defaults: private hosts refused
+  const app = express();
+  app.get('/stream/:id', relay.handler);
+  const srv = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
+  try {
+    const id = relay.register({ url: `${up.base}/icy`, name: 'x' });
+    const { status } = await readBytes(`http://127.0.0.1:${srv.address().port}/stream/${id}`, 1);
+    assert.equal(status, 502);
+    assert.deepEqual(up.seen.icyAsked, [], 'the LAN host must not even be contacted');
+  } finally { srv.closeAllConnections(); await new Promise((r) => srv.close(r)); await up.close(); }
+});
+
+test('every hop is checked: an allowed host redirecting into the LAN is refused at the redirect', async () => {
+  const up = await upstream(); // /redirect -> http://127.0.0.1:<port>/icy
+  const relay = createStreamRelay({ allowHosts: ['localhost'] });
+  const app = express();
+  app.get('/stream/:id', relay.handler);
+  const srv = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
+  try {
+    const port = new URL(up.base).port;
+    const id = relay.register({ url: `http://localhost:${port}/redirect`, name: 'x' });
+    const { status } = await readBytes(`http://127.0.0.1:${srv.address().port}/stream/${id}`, 1);
+    assert.equal(status, 502);
+    assert.deepEqual(up.seen.icyAsked, []);
+  } finally { srv.closeAllConnections(); await new Promise((r) => srv.close(r)); await up.close(); }
+});
+
+test('isPublicHost classifies addresses and resolved names', async () => {
+  const { isPublicHost } = require('../lib/streamRelay');
+  for (const h of ['127.0.0.1', '10.1.2.3', '172.16.0.5', '192.168.1.61', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:192.168.1.1', 'localhost']) {
+    assert.equal(await isPublicHost(h), false, h);
+  }
+  for (const h of ['8.8.8.8', '2001:4860:4860::8888', 'icecast.radiofrance.fr']) {
+    assert.equal(await isPublicHost(h), true, h);
+  }
 });
