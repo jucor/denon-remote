@@ -197,10 +197,11 @@ Each search result has **▶ Play now**: `POST /api/radio/playnow {name, url, co
 `lib/playNow.js` registers the stream with `lib/streamRelay.js` and tells the receiver's
 UPnP renderer (`lib/upnpRenderer.js`) to play `RELAY_BASE/api/radio/stream/<id>`. Plays in
 ~3 s on the receiver's "Media Server" input; no telnet, no yTuner, no menu. The relay
-follows redirects and `.pls`/`.m3u` playlists, fetches HTTPS (the receiver can't), strips ICY
+follows redirects and `.pls`/`.m3u` playlists, fetches HTTPS (not verified whether the receiver can on its own), strips ICY
 metadata (`lib/icy.js`) and broadcasts song titles (`streamTitle` WebSocket event → the
 "Now playing" strip). Only registered stations are relayed (not an open proxy). HLS is not
-supported. MIME types: MP3 → `audio/mpeg`; AAC → tried in order `audio/vnd.dlna.adts`
+supported. Every hop must resolve to a **public** address (no SSRF into the LAN; the
+remote has no login). MIME types: MP3 → `audio/mpeg`; AAC → tried in order `audio/vnd.dlna.adts`
 (accepted live), `audio/mp4`, `audio/x-mp4`, `audio/3gpp` — `audio/aac` is refused (714).
 **Needs env `RELAY_BASE`** = this server's URL as seen from the receiver
 (`http://192.168.1.61:3002` on the NAS); without it `/playnow` answers 501.

@@ -223,4 +223,11 @@
     };
     if (done && done.then) done.then(reveal); else reveal();
   }
+
+  // Open by default so the genres are in plain sight (discoverability); the toggle
+  // still collapses it. Countries load when their tab is first shown.
+  body.hidden = false;
+  toggle.setAttribute('aria-expanded', 'true');
+  setToggleText(true);
+  activate(activeId, false);
 })();

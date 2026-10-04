@@ -53,20 +53,22 @@ async function boot({ listTags, listCountries } = {}) {
   return { page, stats, close };
 }
 
+// The panel is open by default (discoverability); open it only if a test closed it.
+async function ensureBrowseOpen(page) {
+  if (await page.getAttribute('#radio-browse-toggle', 'aria-expanded') !== 'true') await page.click('#radio-browse-toggle');
+}
+
 const chipTexts = (page, panel) =>
   page.$$eval(`${panel} .browse-chip`, (els) => els.map((e) => e.textContent.trim().replace(/\s+/g, ' ')));
 
-test('browse: a visible toggle opens two real tabs, Genres active, nothing fetched until opened', async () => {
+test('browse: open on load — two real tabs, Genres active with chips, without any click', async () => {
   const { page, stats, close } = await boot();
   try {
     assert.equal(await page.isVisible('#radio-browse-toggle'), true);
     assert.match(await page.textContent('#radio-browse-toggle'), /Browse by genre \/ country/);
-    assert.equal(await page.getAttribute('#radio-browse-toggle', 'aria-expanded'), 'false');
-    assert.equal(stats.tags, 0, 'lazy: no request before the panel is opened');
-
-    await page.click('#radio-browse-toggle');
     await page.waitForSelector('#browse-panel-genres .browse-chip');
     assert.equal(await page.getAttribute('#radio-browse-toggle', 'aria-expanded'), 'true');
+    assert.equal(stats.countries, 0, 'Countries still loads only when its tab is first shown');
 
     // ARIA structure
     assert.equal(await page.getAttribute('#radio-browse [role=tablist]', 'aria-label'), 'Browse stations by');
@@ -101,7 +103,7 @@ test('browse: a visible toggle opens two real tabs, Genres active, nothing fetch
 test('browse: chips show thousands-separated counts and only the top 40 genres', async () => {
   const { page, close } = await boot();
   try {
-    await page.click('#radio-browse-toggle');
+    await ensureBrowseOpen(page);
     await page.waitForSelector('#browse-panel-genres .browse-chip');
     const texts = await chipTexts(page, '#browse-panel-genres');
     assert.equal(texts.length, 40);
@@ -116,7 +118,7 @@ test('browse: chips show thousands-separated counts and only the top 40 genres',
 test('browse: switching to Countries by click shows flags, counts and updates the active state', async () => {
   const { page, stats, close } = await boot();
   try {
-    await page.click('#radio-browse-toggle');
+    await ensureBrowseOpen(page);
     await page.waitForSelector('#browse-panel-genres .browse-chip');
     await page.click('#browse-tab-countries');
     await page.waitForSelector('#browse-panel-countries .browse-chip');
@@ -144,7 +146,7 @@ test('browse: switching to Countries by click shows flags, counts and updates th
 test('browse: tabs follow the WAI-ARIA keyboard pattern (arrows, Home, End, roving tabindex)', async () => {
   const { page, close } = await boot();
   try {
-    await page.click('#radio-browse-toggle');
+    await ensureBrowseOpen(page);
     await page.waitForSelector('#browse-panel-genres .browse-chip');
     await page.focus('#browse-tab-genres');
     assert.equal(await page.getAttribute('#browse-tab-genres', 'tabindex'), '0');
@@ -172,7 +174,7 @@ test('browse: tabs follow the WAI-ARIA keyboard pattern (arrows, Home, End, rovi
 test('browse: clicking a genre chip fills #radio-q with tag:<name> and shows results', async () => {
   const { page, stats, close } = await boot();
   try {
-    await page.click('#radio-browse-toggle');
+    await ensureBrowseOpen(page);
     await page.waitForSelector('#browse-panel-genres .browse-chip');
     await page.click('#browse-panel-genres .browse-chip:first-child');
     await page.waitForSelector('#radio-results .radio-result');
@@ -190,7 +192,7 @@ test('browse: clicking a genre chip fills #radio-q with tag:<name> and shows res
 test('browse: a multi-word genre stays ONE tag value (space is backslash-escaped for parseSearchQuery)', async () => {
   const { page, stats, close } = await boot();
   try {
-    await page.click('#radio-browse-toggle');
+    await ensureBrowseOpen(page);
     await page.waitForSelector('#browse-panel-genres .browse-chip');
     await page.click('#browse-panel-genres .browse-chip:nth-child(2)');
     await page.waitForSelector('#radio-results .radio-result');
@@ -204,7 +206,7 @@ test('browse: a multi-word genre stays ONE tag value (space is backslash-escaped
 test('browse: clicking a country chip fills #radio-q with cc:<code> (or country:<name> without a code)', async () => {
   const { page, stats, close } = await boot();
   try {
-    await page.click('#radio-browse-toggle');
+    await ensureBrowseOpen(page);
     await page.click('#browse-tab-countries');
     await page.waitForSelector('#browse-panel-countries .browse-chip');
     await page.click('#browse-panel-countries .browse-chip:first-child');
@@ -231,7 +233,7 @@ test('browse: shows a loading state, then a visible error with a working Retry',
     },
   });
   try {
-    await page.click('#radio-browse-toggle');
+    await ensureBrowseOpen(page);
     await page.waitForFunction(() => /Loading/.test(document.getElementById('browse-status').textContent));
     assert.equal(await page.isVisible('#browse-status'), true);
     release();
@@ -250,12 +252,11 @@ test('browse: shows a loading state, then a visible error with a working Retry',
 test('browse: the toggle collapses the panel again without refetching', async () => {
   const { page, stats, close } = await boot();
   try {
-    await page.click('#radio-browse-toggle');
     await page.waitForSelector('#browse-panel-genres .browse-chip');
-    await page.click('#radio-browse-toggle');
+    await page.click('#radio-browse-toggle'); // collapse
     assert.equal(await page.getAttribute('#radio-browse-toggle', 'aria-expanded'), 'false');
     assert.equal(await page.isVisible('#browse-panel-genres'), false);
-    await page.click('#radio-browse-toggle');
+    await ensureBrowseOpen(page);
     assert.equal(await page.isVisible('#browse-panel-genres'), true);
     assert.equal(stats.tags, 1);
   } finally {
