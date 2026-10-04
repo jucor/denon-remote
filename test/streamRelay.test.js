@@ -156,7 +156,8 @@ test('every hop is checked: an allowed host redirecting into the LAN is refused 
 
 test('isPublicHost classifies addresses and resolved names', async () => {
   const { isPublicHost } = require('../lib/streamRelay');
-  for (const h of ['127.0.0.1', '10.1.2.3', '172.16.0.5', '192.168.1.61', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:192.168.1.1', 'localhost']) {
+  for (const h of ['127.0.0.1', '10.1.2.3', '172.16.0.5', '192.168.1.61', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:192.168.1.1', 'localhost',
+    '2002:c0a8:0101::1', '64:ff9b::c0a8:0101', '::c0a8:0101', '0177.0.0.1', '2130706433']) {
     assert.equal(await isPublicHost(h), false, h);
   }
   for (const h of ['8.8.8.8', '2001:4860:4860::8888', 'icecast.radiofrance.fr']) {
