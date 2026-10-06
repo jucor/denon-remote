@@ -47,7 +47,7 @@ test('POST /favourites adds, GET lists, DELETE removes (file deleted when empty)
     const body = await res.json();
     assert.equal(body.added, true);
     assert.equal(body.id, 'RBB960E57C50601');
-    assert.deepEqual(body.favourites, [{ id: 'RBB960E57C50601', name: 'FIP Jazz', logo: '' }]);
+    assert.deepEqual(body.favourites, [{ id: 'RBB960E57C50601', name: 'FIP Jazz', url: FIP.url, logo: '' }]);
     assert.equal(fs.existsSync(app.bookmarksFile), true);
 
     const list = await (await fetch(`${app.base}/favourites`)).json();

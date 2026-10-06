@@ -82,12 +82,12 @@ test('list returns [] for an empty file', () => {
   assert.deepEqual(bookmarks.list(file), []);
 });
 
-test('list parses yTuner-written items: id, decoded name, logo', () => {
+test('list parses yTuner-written items: id, decoded name, stream URL, logo', () => {
   const file = tmpFile();
   fs.writeFileSync(file, xmlOf(2, ITEM_MS, ITEM_RB));
   assert.deepEqual(bookmarks.list(file), [
-    { id: 'MSB1A2B3C4D5E6F', name: 'Big R Radio - 80s Metal FM', logo: '' },
-    { id: 'RBB960E57C50601', name: 'FIP Jazz & Blues', logo: '' },
+    { id: 'MSB1A2B3C4D5E6F', name: 'Big R Radio - 80s Metal FM', url: 'http://bigr/5186_128', logo: '' },
+    { id: 'RBB960E57C50601', name: 'FIP Jazz & Blues', url: 'http://icecast.radiofrance.fr/fipjazz-midfi.mp3', logo: '' },
   ]);
 });
 
@@ -147,7 +147,7 @@ test('add creates the file with an Item yTuner will accept', async () => {
   const res = await bookmarks.add(file, { name: 'FIP Jazz', url: 'http://cdn/jazz.mp3', uuid: '960e57c5-0601-11e8-ae97-52543be04c81', favicon: '' });
   assert.equal(res.added, true);
   assert.equal(res.id, 'RBB960E57C50601');
-  assert.deepEqual(res.items, [{ id: 'RBB960E57C50601', name: 'FIP Jazz', logo: '' }]);
+  assert.deepEqual(res.items, [{ id: 'RBB960E57C50601', name: 'FIP Jazz', url: 'http://cdn/jazz.mp3', logo: '' }]);
   const xml = fs.readFileSync(file, 'utf8');
   assertYTunerAccepts(xml);
   assert.match(xml, /<StationUrl>http:\/\/cdn\/jazz\.mp3<\/StationUrl>/);
@@ -194,6 +194,7 @@ test('add escapes XML-special characters and they round-trip', async () => {
   assert.match(xml, /Rock &amp; Roll &lt;live&gt;/);
   assert.match(xml, /http:\/\/h\/s\?a=1&amp;b=2/);
   assert.equal(bookmarks.list(file)[0].name, 'Rock & Roll <live> "x"');
+  assert.equal(bookmarks.list(file)[0].url, 'http://h/s?a=1&b=2'); // Listen here sends it back as is
   assert.equal(bookmarks.parse(xml)[0].fields.find(([t]) => t === 'StationUrl')[1], 'http://h/s?a=1&b=2');
 });
 

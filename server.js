@@ -10,7 +10,7 @@ const { searchStations, listTags, listCountries } = require('./lib/radiobrowser'
 const { playStation } = require('./lib/radioNavigator');
 const { parseHttpStatus, httpStatusChanges } = require('./lib/httpStatus');
 const { LineSplitter } = require('./lib/lineSplitter');
-const { savedAddress, isSavedStreamUrl } = require('./lib/savedUrls');
+const { savedAddress, isSavedStreamUrl, listenStreamUrl } = require('./lib/savedUrls');
 const { createStreamRelay } = require('./lib/streamRelay');
 const upnp = require('./lib/upnpRenderer');
 const { playStreamOnRenderer } = require('./lib/playNow');
@@ -105,7 +105,11 @@ async function savedAddressFor(url) {
 const relay = createStreamRelay({
   proxyUrl: geoProxy,
   isSavedUrl,
+  // Listen here: a browser plays a saved station (My Stations / Favourites) through the relay.
+  resolveListenUrl: (url) => listenStreamUrl({ stationsFile, bookmarksFile, relayBase, url }),
   onTitle: ({ id, name, title }) => {
+    // A browser's own stream: its page picks out its titles by its listener id.
+    if (id.startsWith('listen:')) return broadcast({ type: 'listenTitle', lid: id.slice(7), title });
     if (id !== streamNowId) return; // an older stream still winding down
     streamNow = { name, title };
     broadcast({ type: 'streamTitle', value: streamNow });
@@ -114,6 +118,7 @@ const relay = createStreamRelay({
 });
 app.get('/api/radio/stream/u', relay.savedHandler); // before /:id, which would catch "u"
 app.get('/api/radio/stream/:id', relay.handler);
+app.get('/api/radio/listen', relay.listenHandler);
 
 async function playNowOnReceiver({ name, url, codec }) {
   if (!relayBase) {

@@ -65,3 +65,41 @@ test('a newline-forged entry in a station name does not reach the allow-list', a
   const g = files({ favourites: [{ name: forged, url: 'http://ok.example/a.mp3' }] });
   assert.equal(await isSavedStreamUrl({ ...g, url: EVIL }), false);
 });
+
+// --- Listen here: the browser plays a saved station through the relay ---
+const { listenStreamUrl } = require('../lib/savedUrls');
+const FIP = 'http://icecast.radiofrance.fr/fip-hifi.aac';
+
+test('listen: a saved station\'s own URL field is listenable as is', async () => {
+  const f = files({ stations: `[Julien]\nFIP=${FIP}\n` });
+  assert.equal(await listenStreamUrl({ ...f, url: FIP }), FIP);
+});
+
+test('listen: a geo-blocked entry (saved as the relay address) plays its inner stream', async () => {
+  const f = files({ stations: `[Julien]\nRire et Chansons=${savedAddress(BASE, NRJ)}\n` });
+  assert.equal(await listenStreamUrl({ ...f, url: savedAddress(BASE, NRJ) }), NRJ);
+});
+
+test('listen: Favourites count too, direct or via the relay', async () => {
+  const f = files({ favourites: [{ name: 'FIP', url: FIP }, { name: 'RC', url: savedAddress(BASE, NRJ) }] });
+  assert.equal(await listenStreamUrl({ ...f, url: FIP }), FIP);
+  assert.equal(await listenStreamUrl({ ...f, url: savedAddress(BASE, NRJ) }), NRJ);
+});
+
+test('listen: anything that is not exactly a saved URL field is refused (no open proxy)', async () => {
+  const f = files({
+    stations: `[Julien]\nFIP=${FIP}|${EVIL}\n${EVIL}=http://ok.example/a.mp3\n`,
+    favourites: [{ name: `x ${EVIL}`, url: 'http://ok.example/b.mp3', favicon: EVIL }],
+  });
+  for (const url of [EVIL, '', undefined, FIP + '?x', savedAddress(BASE, FIP)]) {
+    assert.equal(await listenStreamUrl({ ...f, url }), null, String(url));
+  }
+});
+
+test('listen: a saved relay address of another base, or wrapping a relay URL, is refused', async () => {
+  const other = savedAddress('http://10.0.0.9:3002', NRJ);
+  const nested = savedAddress(BASE, savedAddress(BASE, NRJ));
+  const f = files({ stations: `[Julien]\nA=${other}\nB=${nested}\n` });
+  assert.equal(await listenStreamUrl({ ...f, url: other }), null);
+  assert.equal(await listenStreamUrl({ ...f, url: nested }), null);
+});

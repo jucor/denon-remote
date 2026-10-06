@@ -373,3 +373,51 @@ test('only audio is relayed; responses are never sniffed or rendered as a page',
     assert.match(headers['content-security-policy'] || '', /sandbox/);
   } finally { await app.close(); srv.closeAllConnections(); await new Promise((r) => srv.close(r)); }
 });
+
+// --- Listen here: GET /listen?url=<saved URL field>&lid=<listener id> ---
+async function listenApp(opts) {
+  const relay = createStreamRelay(opts);
+  const app = express();
+  app.get('/listen', relay.listenHandler);
+  const srv = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
+  return { base: `http://127.0.0.1:${srv.address().port}`, close: () => { srv.closeAllConnections(); return new Promise((r) => srv.close(r)); } };
+}
+const listenUrl = (base, url, lid = 'abc123') => `${base}/listen?url=${encodeURIComponent(url)}&lid=${lid}`;
+
+test('listen: relays what the resolver allows, with titles tagged by the listener id', async () => {
+  const up = await upstream();
+  const titles = [];
+  const saved = 'http://saved.example/geo';
+  const app = await listenApp({
+    allowPrivateHosts: true,
+    onTitle: (t) => titles.push(t),
+    resolveListenUrl: async (u) => (u === saved ? `${up.base}/icy` : null),
+  });
+  try {
+    const ok = await readBytes(listenUrl(app.base, saved, 'tab42'), 64);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.type, 'audio/mpeg');
+    assert.ok([...ok.body].every((b) => b >= 65 && b <= 90), 'only audio bytes');
+    assert.deepEqual(titles, [{ id: 'listen:tab42', name: '127.0.0.1', title: 'Song A' }]); // name: the stream's host
+    assert.equal((await readBytes(listenUrl(app.base, 'http://example.com/other'), 1)).status, 404);
+    assert.equal((await readBytes(`${app.base}/listen?lid=x`, 1)).status, 404);
+  } finally { await app.close(); await up.close(); }
+});
+
+test('listen: the listener id must be a short token', async () => {
+  const up = await upstream();
+  const app = await listenApp({ allowPrivateHosts: true, resolveListenUrl: async () => `${up.base}/icy` });
+  try {
+    for (const lid of ['', 'a b', 'x'.repeat(33), '<script>']) {
+      assert.equal((await readBytes(listenUrl(app.base, 'http://saved.example/a', encodeURIComponent(lid)), 1)).status, 400, lid);
+    }
+  } finally { await app.close(); await up.close(); }
+});
+
+test('listen: a saved station pointing into the LAN is still refused (no SSRF)', async () => {
+  const up = await upstream();
+  const app = await listenApp({ resolveListenUrl: async () => `${up.base}/icy` });
+  try {
+    assert.equal((await readBytes(listenUrl(app.base, 'http://saved.example/a'), 1)).status, 502);
+  } finally { await app.close(); await up.close(); }
+});
