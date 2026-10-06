@@ -109,6 +109,8 @@ at LAN IP 192.168.1.200, intercepts `*.vtuner.com` DNS) serves it to the receive
 - `lib/nseScreen.js` — assembles NSE0..NSE8 lines into a screen (title, items, cursor, page, loading)
 - `lib/lineSplitter.js` — splits the telnet stream into CR-terminated lines across TCP chunks
 - `lib/httpStatus.js` — parses the HTTP status XML; ignores it while telnet is connected
+- `lib/savedUrls.js` — the saved-station allow-list (relay addresses, Listen here)
+- `public/radio-listen.js` — Listen here: the per-row button, the player bar, lock-screen controls
 
 ## Denon HTTP API
 
@@ -223,6 +225,26 @@ the external network `arr_arr-net` (misc.yml) and gets `GEO_PROXY=http://gluetun
   field (`lib/savedUrls.js`; never a text search). URLs pointing at the relay can't be added.
 - Relay responses are audio-only, `nosniff`, sandbox CSP (no stored XSS on our origin).
 - Live tests: **mute the receiver first** (`MUON`) — people are in the room.
+
+## Listen here — a saved station on this phone or computer
+
+Every My Stations and Favourites row has **🎧 Listen here** next to ▶ Play: it plays the
+station in the browser showing the page, not on the receiver (which is left alone — no need
+to mute it for this). A bar pinned to the bottom shows "On this device · station — song" with
+■ Stop; the row's button turns into ■ Stop too. Phones get lock-screen metadata and controls
+(Media Session; pause drops the connection, play reconnects — it is live radio).
+- `GET /api/radio/listen?url=<saved URL field>&lid=<listener id>` → the relay
+  (`relay.listenHandler`). `listenStreamUrl()` (`lib/savedUrls.js`) serves only a URL that is
+  **exactly** a saved entry's URL field; a geo-blocked entry (saved as
+  `RELAY_BASE/api/radio/stream/u?url=…`) plays the stream inside it, through the VPN as usual.
+  Same origin as the page, so HTTP-only streams play from the HTTPS page (no mixed content),
+  and it works anywhere on the tailnet. All the relay's checks still apply (public hosts only,
+  audio only).
+- Song titles: the relay reports them under the id `listen:<lid>`; the server broadcasts
+  `{ type: 'listenTitle', lid, title }` and each tab shows only its own (`lid` is random per
+  page load). The receiver's "Now playing" strip only follows Play now's stream id.
+- `GET /favourites` now returns each entry's `url` (for this button).
+- Not for search results (only saved stations are relayed to browsers).
 
 ## Play now — UPnP renderer (port 8080) + stream relay
 

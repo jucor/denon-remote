@@ -117,7 +117,9 @@
       const play = button('radio-play fav-play', '▶ Play', 'Play ' + f.name);
       const del = button('radio-remove fav-remove', '×', 'Remove ' + f.name + ' from Favourites');
       del.title = 'Remove from Favourites';
-      row.append(logoEl(f), meta, play, del);
+      row.append(logoEl(f), meta, play);
+      if (window.radioListen) row.append(window.radioListen.button({ name: f.name, url: f.url, logo: f.logo }));
+      row.append(del);
       row.onclick = () => play_(f, play);
       del.onclick = (ev) => { ev.stopPropagation(); remove(f, del); };
       listEl.appendChild(row);

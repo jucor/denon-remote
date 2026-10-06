@@ -417,6 +417,24 @@
     .radio-result .radio-meta { flex-basis: calc(100% - 38px); }
   }
   .radio-mine { cursor: pointer; }
+  /* Listen here: plays on this device (phone/computer), so it looks different from ▶ Play. */
+  .radio-listen { flex-shrink: 0; font-size: 12px; padding: 6px 12px; background: var(--surface); color: var(--text); border: 1px solid var(--accent); font-weight: 600; }
+  .radio-listen[aria-pressed="true"] { background: var(--success); color: #111; border-color: var(--success); }
+  @media (max-width: 600px) {
+    .radio-mine { flex-wrap: wrap; row-gap: 8px; }
+    .radio-mine .radio-meta { flex-basis: calc(100% - 38px); }
+  }
+  .listen-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: var(--surface2); border-top: 2px solid var(--success);
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
+  }
+  /* Two lines on phones, so the song title is not cut off. */
+  .listen-now { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+  .listen-stop { flex-shrink: 0; font-size: 13px; padding: 8px 14px; background: var(--danger, #c0392b); color: #fff; font-weight: 600; }
+  body.listening { padding-bottom: 88px; }
   .radio-mine:hover { outline: 1px solid var(--accent); }
   .radio-play { flex-shrink: 0; font-size: 12px; padding: 6px 12px; background: var(--accent); color: #fff; font-weight: 600; }
   .radio-play:disabled { opacity: 0.7; }
@@ -1058,6 +1076,7 @@
 
 <footer>Denon CEOL N7 Web Remote</footer>
 
+<script src="radio-listen.js"></script>
 <script>
 // --- State ---
 let ws = null;
@@ -1235,6 +1254,7 @@ function renderRadioMine(stations) {
     const row = radioRow('radio-mine', s, (s.category || '') + (viaVpn ? ' · via VPN' : ''),
       '<button class="radio-play" title="Play on the receiver">▶ Play</button>' +
       '<button class="radio-remove" title="Remove from My Stations">×</button>');
+    if (window.radioListen) row.insertBefore(radioListen.button(s), row.querySelector('.radio-remove'));
     const playBtn = row.querySelector('.radio-play');
     playBtn.setAttribute('aria-label', 'Play ' + s.name);
     row.onclick = () => radioPlay(s, playBtn);
@@ -1456,6 +1476,9 @@ function handleEvent(msg) {
   switch (msg.type) {
     case 'streamTitle':
       handleStreamTitle(msg.value);
+      break;
+    case 'listenTitle':
+      if (window.radioListen) radioListen.onTitle(msg);
       break;
     case 'connection':
       updateConnection(msg.value, msg.host, msg.httpAvailable, msg.telnetDisabled);
