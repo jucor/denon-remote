@@ -14,6 +14,7 @@ const { savedAddress, isSavedStreamUrl, listenStreamUrl } = require('./lib/saved
 const { createStreamRelay } = require('./lib/streamRelay');
 const upnp = require('./lib/upnpRenderer');
 const { playStreamOnRenderer } = require('./lib/playNow');
+const { isReceiverAddress } = require('./lib/connectHost');
 
 // Backstop: a stray socket error must never take the whole remote down (it did: 502).
 process.on('uncaughtException', (err) => {
@@ -462,6 +463,11 @@ app.post('/api/discover', async (req, res) => {
 // Connect to a specific host (or reconnect to current)
 app.post('/api/connect', (req, res) => {
   const { host } = req.body || {};
+  // Only a bare home-LAN IPv4: the host ends up in URLs and a socket (lib/connectHost.js).
+  if (host !== undefined && host !== '' && !isReceiverAddress(host)) {
+    broadcast({ type: 'raw', value: '! Not a receiver address (a LAN IPv4 like 192.168.1.11): ' + String(host).slice(0, 100) });
+    return res.status(400).json({ error: 'host must be a LAN IPv4 address such as 192.168.1.11' });
+  }
   connectDenon(host || denonHost);
   res.json({ ok: true, host: denonHost });
 });
